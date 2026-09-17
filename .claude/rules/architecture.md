@@ -1,85 +1,110 @@
 ---
-alwaysApply: true
-description: >
-  Enforces dependency direction, feature organization, and module boundary
-  rules for .NET solution architecture.
+paths:
+  - "src/**/*.cs"
+  - "src/**/*.csproj"
+  - "tests/**/*.cs"
+  - "tests/**/*.csproj"
 ---
 
 # Architecture Rules
 
-## Ask First, Recommend Second
+## Dependency Direction
 
-- **Never assume an architecture — use the architecture-advisor skill.** Every project has different constraints. Ask about team size, domain complexity, and deployment model before recommending Clean Architecture, VSA, DDD, or Modular Monolith.
+Dependencies must point inward.
 
-## Data Access
+- `Domain` depends on no other application project.
+- `Application` depends on `Domain`.
+- `Infrastructure` depends on `Application` and `Domain`.
+- `Api` depends on `Application` and may reference `Infrastructure` only as required for application composition and dependency registration.
+- Inner layers must never depend on outer layers.
 
-- **No repository pattern over EF Core.** `DbContext` is already a Unit of Work + Repository. Wrapping it adds indirection with no value and prevents access to EF Core features like change tracking, batching, and compiled queries.
+Do not reference Infrastructure-specific types from Domain or Application.
+
+## Domain
+
+The Domain layer contains business concepts and rules that are independent of infrastructure and transport concerns.
+
+- Keep Domain free of EF Core, ASP.NET Core, HTTP, persistence, and external-service dependencies.
+- Put business invariants in Domain objects when they naturally belong there.
+- Prefer encapsulation when it protects meaningful invariants.
+- Do not introduce a Rich Domain Model or DDD tactical patterns unless justified by concrete domain complexity or explicitly requested.
+
+## Application
+
+The Application layer coordinates application use cases.
+
+- Use Application Services as the default orchestration mechanism.
+- Application Services may coordinate Domain objects, repositories, external-service abstractions, and the Unit of Work.
+- Define persistence and external-service abstractions in Application when they are required by application use cases.
+- Keep infrastructure implementation details out of Application.
+- Do not use `DbContext`, `DbSet<T>`, EF Core APIs, or provider-specific types in Application.
+
+Do not introduce CQRS handlers, MediatR, Kommand, Vertical Slice Architecture, or similar mediator-based organization unless explicitly approved.
+
+A service becoming too large is a signal to reconsider its responsibilities, not an automatic reason to introduce another architectural pattern.
+
+## API
+
+ASP.NET Core Controllers are the default HTTP entry point.
+
+Controllers must remain thin:
+
+- bind and validate HTTP input;
+- invoke Application services;
+- translate application outcomes into HTTP responses.
+
+Controllers must not:
+
+- contain business logic;
+- access `DbContext`;
+- access concrete repositories;
+- construct infrastructure services manually.
+
+`Program.cs` is the application composition root and may register Infrastructure implementations.
+
+## Repositories
+
+Repository interfaces are inward-facing persistence contracts.
+
+- Prefer specific repository interfaces that represent actual Application or Domain persistence needs.
+- Repository interfaces normally correspond to meaningful aggregate roots or cohesive persistence boundaries rather than blindly to every database table.
+- Define repository interfaces in Application.
+- Implement repositories in Infrastructure.
+- Keep LINQ-to-EF query construction inside Infrastructure.
+- Do not expose `IQueryable<T>`, `DbSet<T>`, `DbContext`, EF Core expressions, or provider-specific types from repository interfaces.
+- Return materialized entities, collections, projections, or explicit result models as appropriate.
+
+Example:
 
 ```csharp
-// DO — inject DbContext directly
-public sealed class OrderService(AppDbContext db)
+public interface IOrderRepository
 {
-    public Task<Order?> GetAsync(Guid id, CancellationToken ct) =>
-        db.Orders.FindAsync([id], ct).AsTask();
-}
+    Task<Order?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken);
 
-// DON'T — generic repository wrapping EF
-public interface IRepository<T> { Task<T?> GetByIdAsync(Guid id); }
+    Task AddAsync(
+        Order order,
+        CancellationToken cancellationToken);
+}
 ```
 
-## Endpoint Organization
+## Generic Repository
 
-- **Every endpoint group gets its own file implementing `IEndpointGroup`.** Never define endpoints inline in `Program.cs`. Each feature/resource gets a dedicated `*Endpoints.cs` file.
-- **Use `app.MapEndpoints()` for auto-discovery.** Program.cs calls `app.MapEndpoints()` once. This scans the assembly for all `IEndpointGroup` implementations and registers them. Program.cs never changes when adding new endpoints.
-- **Never add `MapGroup` or `Map*Endpoints()` calls to Program.cs.** Both inline endpoints and manual extension-method wiring in Program.cs are anti-patterns. The `IEndpointGroup` interface + auto-discovery is the only accepted pattern.
+A generic repository may be used only as an Infrastructure implementation detail when it removes genuine duplication.
+
+- Application code must not depend on `IGenericRepository<T>` or another generic CRUD contract.
+- Concrete repositories may reuse an Infrastructure-only `Repository<TEntity>` base class.
+- Do not expand the generic repository into a replacement for EF Core query capabilities.
+- Use-case-specific queries belong in concrete repository implementations.
+
+## Unit of Work
+
+Use `IUnitOfWork` as the normal commit boundary for an Application use case.
 
 ```csharp
-// DO — auto-discovered endpoint group in its own file
-public sealed class OrderEndpoints : IEndpointGroup
+public interface IUnitOfWork
 {
-    public void Map(IEndpointRouteBuilder app)
-    {
-        var group = app.MapGroup("/api/orders").WithTags("Orders");
-        group.MapGet("/", ListOrders);
-        group.MapPost("/", CreateOrder);
-    }
+    Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken = default);
 }
-
-// DON'T — manual wiring in Program.cs
-app.MapGroup("/api/orders").MapOrderEndpoints();
-app.MapGroup("/api/products").MapProductEndpoints();
-```
-
-## Project Organization
-
-- **Feature folders over layer folders.** Vertical slices keep related code together, reducing the number of files you touch per feature.
-
-```
-# DO                          # DON'T
-Features/                     Controllers/
-  Orders/                       OrdersController.cs
-    CreateOrder.cs              ProductsController.cs
-    OrderEndpoints.cs           GetOrder.cs
-  Products/                   Services/
-    CreateProduct.cs            OrderService.cs
-    ProductEndpoints.cs         ProductService.cs
-```
-
-- **Dependency direction is inward.** Domain depends on nothing. Application depends on Domain. Infrastructure depends on Application. Presentation depends on Application. Never reverse these arrows.
-- **Module boundaries enforced through project references.** If two modules should not couple, they must not have a project reference. Use integration events or a shared contracts project for cross-module communication.
-
-## Shared Kernel
-
-- **Shared kernel contains only contracts, never business logic.** Shared projects hold interfaces, DTOs, and integration event definitions. Domain logic belongs in the owning module. Leaking logic into shared projects creates hidden coupling.
-
-```csharp
-// DO — shared kernel has contracts
-public interface IOrderPlaced
-{
-    Guid OrderId { get; }
-    DateTimeOffset OccurredAt { get; }
-}
-
-// DON'T — shared kernel has domain logic
-public static class PricingCalculator { /* business rules */ }
-```
