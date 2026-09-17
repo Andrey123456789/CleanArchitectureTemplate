@@ -175,7 +175,6 @@ public Task<OrderSummary?> GetSummaryAsync(
     CancellationToken cancellationToken)
 {
     return db.Orders
-        .AsNoTracking()
         .Where(x => x.Id == id)
         .Select(x => new OrderSummary(
             x.Id,
@@ -346,9 +345,7 @@ Create migrations from the Infrastructure project using the API project as the
 startup project when required.
 
 ```bash
-dotnet ef migrations add AddOrderIndex \
-  --project src/MyApp.Infrastructure \
-  --startup-project src/MyApp.Api
+dotnet ef migrations add AddOrderIndex --project src/MyApp.Infrastructure --startup-project src/MyApp.Api
 ```
 
 Review generated migrations before committing them.

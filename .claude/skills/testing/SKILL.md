@@ -391,5 +391,5 @@ Avoid:
 | Time-dependent behavior | `TimeProvider` / `FakeTimeProvider` |
 | External HTTP dependency | Stub handler or local fake server |
 | Reproduced bug | Focused regression test |
-| Temporary Claude experiment | Delete or promote intentionally |
+| Temporary Claude behavioral check | Convert to maintained coverage or confirm equivalent existing coverage |
 | Deployment/basic health | Smoke test |

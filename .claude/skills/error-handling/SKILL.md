@@ -228,21 +228,19 @@ Otherwise allow it to propagate to the centralized failure handling path.
 
 Do not swallow external-service failures.
 
-## Logging
+## Error Logging
 
-Unexpected exceptions should generally be logged once at the boundary that
+Unexpected exceptions should normally be logged once at the boundary that
 handles them.
 
-Avoid logging the same exception as an error in Repository, Application,
-Controller, and global handler.
+Do not log the same exception repeatedly in Repository, Application,
+Controller, and the global exception handler.
 
-Expected outcomes such as `NotFound` normally do not need error-level logging.
+Expected outcomes such as `NotFound`, validation failures, or rejected business
+operations normally should not be logged as application errors.
 
-Use structured logging properties instead of interpolated diagnostic strings
-where practical.
-
-Do not log secrets, authentication tokens, passwords, sensitive request bodies,
-or other protected data.
+Follow the project's logging guidance for log levels, structured logging,
+message templates, correlation, and sensitive-data handling.
 
 ## Cancellation
 

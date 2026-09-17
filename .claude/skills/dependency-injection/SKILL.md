@@ -38,7 +38,8 @@ public static class DependencyInjection
 
 Infrastructure registers technical implementations:
 
-```csharp public static class DependencyInjection
+```csharp 
+public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
@@ -77,24 +78,15 @@ or a simple explicit factory is clearer.
 // Registration
 builder.Services.AddKeyedScoped<INotificationService, EmailNotificationService>("email");
 builder.Services.AddKeyedScoped<INotificationService, SmsNotificationService>("sms");
-builder.Services.AddKeyedScoped<INotificationService, PushNotificationService>("push");
 
-// Resolution via attribute
-public class OrderHandler([FromKeyedServices("email")] INotificationService notifier)
+internal sealed class EmailOrderNotifier(
+    [FromKeyedServices("email")] INotificationService notifier)
 {
-    public async Task Handle(CreateOrder.Command command, CancellationToken ct)
+    public Task NotifyAsync(
+        Notification notification,
+        CancellationToken cancellationToken)
     {
-        // ... create order
-        await notifier.SendAsync(notification, ct);
-    }
-}
-
-// Resolution via IServiceProvider
-public class NotificationRouter(IServiceProvider provider)
-{
-    public INotificationService GetService(string channel)
-    {
-        return provider.GetRequiredKeyedService<INotificationService>(channel);
+        return notifier.SendAsync(notification, cancellationToken);
     }
 }
 ```
@@ -256,11 +248,11 @@ public sealed class BackgroundWorker(
 ### Don't Register Everything as Singleton
 
 ```csharp
-// BAD — making a service singleton when it holds mutable state
-builder.Services.AddSingleton<OrderService>(); // has DbContext dependency
+// BAD — application service depends on scoped repositories/UoW
+services.AddSingleton<IOrderService, OrderService>();
 
-// GOOD — match the lifetime to the service's needs
-builder.Services.AddScoped<OrderService>();
+// GOOD
+services.AddScoped<IOrderService, OrderService>();
 ```
 
 ## Decision Guide

@@ -67,7 +67,7 @@ Controllers must not:
 Repository interfaces are inward-facing persistence contracts.
 
 - Prefer specific repository interfaces that represent actual Application or Domain persistence needs.
-- Repository interfaces normally correspond to meaningful aggregate roots or cohesive persistence boundaries rather than blindly to every database table.
+- Repository interfaces should represent cohesive persistence boundaries rather than blindly mirror every database table. When DDD aggregate roots exist, they are natural repository boundaries.
 - Define repository interfaces in Application.
 - Implement repositories in Infrastructure.
 - Keep LINQ-to-EF query construction inside Infrastructure.
@@ -108,3 +108,28 @@ public interface IUnitOfWork
     Task<int> SaveChangesAsync(
         CancellationToken cancellationToken = default);
 }
+```
+
+- Infrastructure implements `IUnitOfWork` using the application's `DbContext`.
+- Repositories normally stage changes and do not independently call `SaveChangesAsync`.
+- Application Services decide when an application operation is ready to commit.
+- Repositories participating in the same use case must share the same Unit of Work.
+- Do not introduce explicit transaction APIs until a real use case requires transaction control beyond normal `SaveChangesAsync`.
+
+## EF Core Boundary
+
+EF Core is an Infrastructure implementation detail.
+
+Inside Infrastructure, use EF Core normally and take advantage of its capabilities.
+
+- Do not leak EF Core concepts into Application.
+- Do not cripple repository implementations merely to preserve a generic abstraction.
+- The repository boundary keeps persistence concerns out of Application; it does not hide EF Core from Infrastructure.
+
+## Architectural Simplicity
+
+Prefer the simplest architecture that satisfies current requirements.
+
+Do not introduce additional architectural patterns or layers without a concrete need.
+
+Prefer solving observed design problems over anticipating hypothetical future complexity.
