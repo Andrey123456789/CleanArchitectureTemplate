@@ -129,7 +129,11 @@ Do not expose EF query objects from repository interfaces.
 
 ## Unit of Work Implementation
 
-Unit of Work must contain SaveChangesAsync method and links to all repositories.
+The Unit of Work normally represents the Application-facing commit boundary.
+
+It should not act as a container exposing every repository. Repositories are
+injected independently and participate in the same Unit of Work by sharing the
+same scoped `AppDbContext`.
 
 ```csharp
 internal sealed class UnitOfWork(AppDbContext db)

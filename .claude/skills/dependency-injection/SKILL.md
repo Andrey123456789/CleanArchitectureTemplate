@@ -261,7 +261,7 @@ services.AddScoped<IOrderService, OrderService>();
 |----------|---------------|
 | Application service using repositories/UoW | Scoped|
 | Pure stateless helper with no scoped dependency | Transient or concrete registration|
-| Configuration / cache | Singleton |
+| Immutable/shared configuration | Singleton-compatible |
 | DbContext | Scoped (registered by `AddDbContext`) |
 | Multiple implementations | Keyed services (strategy pattern) |
 | Cross-cutting behavior | Decorator pattern |

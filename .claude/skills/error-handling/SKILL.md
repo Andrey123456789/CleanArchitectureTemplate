@@ -43,6 +43,10 @@ Do not add broad `try/catch` blocks only to log and rethrow the same exception.
 
 Use ASP.NET Core `IExceptionHandler` for centralized handling.
 
+Treat client-aborted requests separately from unexpected application failures.
+A cancellation caused by `HttpContext.RequestAborted` should not be logged as an
+unhandled application error or translated into a generic `500` response.
+
 ```csharp
 internal sealed class GlobalExceptionHandler(
     ILogger<GlobalExceptionHandler> logger)
@@ -53,6 +57,15 @@ internal sealed class GlobalExceptionHandler(
         Exception exception,
         CancellationToken cancellationToken)
     {
+        if (exception is OperationCanceledException &&
+            httpContext.RequestAborted.IsCancellationRequested)
+        {
+            httpContext.Response.StatusCode =
+                StatusCodes.Status499ClientClosedRequest;
+
+            return true;
+        }
+
         logger.LogError(
             exception,
             "Unhandled exception while processing {Method} {Path}",
