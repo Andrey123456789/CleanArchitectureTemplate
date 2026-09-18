@@ -1,196 +1,212 @@
 ---
 name: modern-csharp
 description: >
-  Modern C# language features for .NET 10 and C# 14. Covers primary constructors,
-  collection expressions, the field keyword, extension members, records, pattern
-  matching, spans, and raw string literals.
-  Load this skill when writing any new C# code, reviewing existing code for
-  modernization, using "modern C#", "C# 14", "primary constructor", "collection
-  expression", "records", "pattern matching", "span", "field keyword", or
-  "extension members". Always loaded as the baseline for all agents.
+  Guidance for using modern C# features in .NET 10 / C# 14 when they improve
+  clarity or correctness. Covers primary constructors, collection expressions,
+  records, pattern matching, field-backed properties, extension members,
+  required members, raw strings, and performance-oriented features when
+  justified. Use when writing new C# or explicitly modernizing existing code.
 ---
 
-# Modern C# (C# 14 / .NET 10)
+# Modern C#
 
-## Core Principles
+## Principle
 
-1. **Use the newest stable features** — C# 14 is the target. Prefer language-level constructs over library workarounds.
-2. **Readability over cleverness** — Pattern matching and expression-bodied members improve readability when used appropriately; deeply nested patterns do not.
-3. **Value types where possible** — Prefer `record struct`, `Span<T>`, and stack allocation to reduce GC pressure.
-4. **Immutability by default** — Use `record`, `readonly`, `init`, and `required` to make illegal states unrepresentable.
+Use modern language features when they make the code clearer, safer, or simpler.
 
-## Patterns
+Do not modernize code merely to demonstrate newer syntax.
 
-### Well-Known Features Quick Reference
+Follow `coding-style.md` and the conventions already established by the project.
 
-| Feature | Usage | Example |
-|---------|-------|---------|
-| Primary constructors | DI injection, eliminate field assignments | `public class OrderService(IOrderRepo repo, TimeProvider clock) { }` |
-| Collection expressions | `[]` for all collection types + spread | `List<string> names = ["Alice", "Bob"];` / `int[] all = [..a, ..b, 99];` |
-| Records | DTOs, value objects, immutable data | `public record CreateOrderRequest(string CustomerId, List<OrderItem> Items);` |
-| `readonly record struct` | Small stack-allocated value types | `public readonly record struct Money(decimal Amount, string Currency);` |
-| Pattern matching | Switch expressions, list/property patterns | `order switch { { Total: > 1000 } => "Premium", _ => "Standard" };` |
-| List patterns | Deconstruct arrays/lists | `items switch { [] => "Empty", [var x] => $"One: {x}", [var f, .., var l] => $"{f}..{l}" };` |
-| `Span<T>` | Zero-allocation slicing | `ReadOnlySpan<char> trimmed = input.Trim(); int.TryParse(trimmed[4..], out id);` |
-| Raw string literals | Multi-line SQL, JSON, XML | `var sql = """ SELECT ... """;` / interpolated: `$$""" {"id": "{{id}}"} """;` |
-| `required` members | Enforce initialization | `public required string ConnectionString { get; init; }` |
-| `is` pattern + extraction | Null/type/property check | `if (result is { IsSuccess: true, Value: var order }) { ... }` |
+## Primary Constructors
 
-### The `field` Keyword (C# 14)
-
-Access the auto-generated backing field in property accessors without declaring it manually.
+Primary constructors are useful for simple dependency injection:
 
 ```csharp
-// GOOD — field keyword for validation in auto-property
-public class Product
+internal sealed class OrderService(
+    IOrderRepository orders,
+    IUnitOfWork unitOfWork)
 {
-    public string Name
-    {
-        get => field;
-        set => field = value?.Trim() ?? throw new ArgumentNullException(nameof(value));
-    }
-
-    public decimal Price
-    {
-        get => field;
-        set => field = value >= 0 ? value : throw new ArgumentOutOfRangeException(nameof(value));
-    }
 }
 ```
 
-#### Lazy Initialization with `field`
+Prefer a normal constructor when initialization, validation, field naming, or
+debugging becomes clearer that way.
+
+Do not convert existing constructors mechanically.
+
+## Collection Expressions
+
+Use collection expressions when the target type is clear:
 
 ```csharp
-public class ProductCatalog
-{
-    // Lazy-load on first access — no manual Lazy<T> or backing field
-    public IReadOnlyList<Product> Products
-    {
-        get => field ??= LoadProducts();
-    }
+string[] names = ["Alice", "Bob"];
 
-    private static List<Product> LoadProducts() => /* expensive load */;
+List<int> ids = [1, 2, 3];
+```
+
+Do not replace every existing collection initializer solely for modernization.
+
+## Records
+
+Records are useful when value-oriented semantics are intentional.
+
+Good candidates can include:
+
+- immutable transport DTOs;
+- genuine Value Objects;
+- immutable messages.
+
+Do not make every DTO or Domain entity a record automatically.
+
+Entities with identity and lifecycle normally remain classes unless the model
+genuinely benefits from record semantics.
+
+## Required Members
+
+Use `required` when initialization of a property is part of the type's valid
+construction contract:
+
+```csharp
+public required string Name { get; init; }
+```
+
+Do not use `required` as a substitute for meaningful constructor/domain
+validation where invariants must be protected.
+
+## Pattern Matching
+
+Pattern matching is useful when it makes branching clearer:
+
+```csharp
+return status switch
+{
+    OrderStatus.New => ...,
+    OrderStatus.Completed => ...,
+    _ => ...
+};
+```
+
+Avoid deeply nested patterns that are harder to understand than straightforward
+conditions.
+
+## `field` Keyword
+
+C# 14 supports field-backed properties using `field`.
+
+```csharp
+public string Name
+{
+    get;
+    set => field =
+        string.IsNullOrWhiteSpace(value)
+            ? throw new ArgumentException("Name is required.")
+            : value.Trim();
 }
 ```
 
-#### Change Notification with `field`
+Use it when it removes an otherwise trivial backing field.
+
+Do not rewrite manual backing fields that already contain clear or substantial
+logic solely to use the new keyword.
+
+## Extension Members
+
+C# 14 supports extension-member blocks.
+
+They are useful when extension properties or grouped extension behavior
+genuinely improve an API.
 
 ```csharp
-// INotifyPropertyChanged without manual backing fields
-public class OrderViewModel : INotifyPropertyChanged
-{
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    public string CustomerName
-    {
-        get => field;
-        set
-        {
-            if (field == value) return;
-            field = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CustomerName)));
-        }
-    } = "";
-
-    public decimal Total
-    {
-        get => field;
-        set
-        {
-            if (field == value) return;
-            field = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Total)));
-        }
-    }
-}
-```
-
-### Extension Members (C# 14)
-
-C# 14 adds `extension` blocks inside static classes. Unlike classic extension methods, they support extension **properties** and **static** extension members — the receiver is declared once for the whole block.
-
-```csharp
-// GOOD — extension block (shipped C# 14 syntax)
 public static class OrderExtensions
 {
     extension(Order order)
     {
-        public decimal TotalWithTax => order.Total * 1.2m;
-
-        public bool IsHighValue => order.Total > 1000m;
-
-        public string ToSummary() =>
-            $"Order #{order.Id}: {order.Total:C} ({order.Items.Count} items)";
-    }
-
-    // Static extension members use the type (no receiver instance)
-    extension(Order)
-    {
-        public static Order Empty => Order.Create("none", [], DateTimeOffset.MinValue);
+        public bool IsFinished =>
+            order.Status == OrderStatus.Completed;
     }
 }
-
-// Callers see them as if declared on Order
-if (order.IsHighValue) { /* ... */ }
 ```
 
-Classic `this`-parameter extension methods still work and coexist — use extension blocks when you need properties or several members on the same receiver.
+Traditional extension methods remain valid.
 
-## Anti-patterns
+Do not convert ordinary extension methods solely because the newer syntax
+exists.
 
-### Don't Use Obsolete Patterns When Modern Alternatives Exist
+## Raw String Literals
+
+Raw string literals are useful for readable embedded text:
 
 ```csharp
-// BAD — manual backing field when field keyword works
-private string _name;
-public string Name
+var json = """
 {
-    get => _name;
-    set => _name = value ?? throw new ArgumentNullException();
+  "enabled": true
 }
-
-// BAD — old-style collection initialization
-var list = new List<int>() { 1, 2, 3 };
-
-// BAD — Tuple instead of record for domain types
-(string Name, decimal Price) product = ("Widget", 9.99m);
-// GOOD — record
-public record Product(string Name, decimal Price);
+""";
 ```
 
-### Don't Over-pattern-match
+They are especially useful for:
 
-```csharp
-// BAD — deeply nested pattern that's hard to read
-if (order is { Customer: { Address: { Country: { Code: "US" } } } })
+- test JSON;
+- templates;
+- SQL that genuinely belongs in code.
 
-// GOOD — extract to a clear method or use sequential checks
-if (order.Customer.Address.Country.Code == "US")
-```
+Do not use raw SQL merely because raw string literals make it convenient.
 
-### Don't Use `var` When the Type Is Not Obvious
+## `var`
 
-```csharp
-// BAD — what type is this?
-var result = Process(order);
+Use `var` when the resulting type is obvious or not important to understanding
+the code.
 
-// GOOD — explicit type when not obvious
-Result<Order> result = Process(order);
-// Also GOOD — var is fine when type is apparent
-var orders = new List<Order>();
-```
+Use an explicit type when it improves readability.
 
-## Decision Guide
+Follow the existing project's convention.
 
-| Scenario | Recommendation |
-|----------|---------------|
-| DTO / API contract | `record` (reference type) |
-| Small value object (2-3 fields) | `readonly record struct` |
-| Service with DI | Primary constructor |
-| Collection creation | Collection expression `[]` |
-| Property with validation | `field` keyword |
-| Multi-line string (SQL, JSON) | Raw string literal `"""` |
-| Slicing strings/arrays | `Span<T>` |
-| Type checking + extraction | Pattern matching with `is` / `switch` |
-| Enforced initialization | `required` modifier |
-| Adding methods to external types | Extension members |
+## Immutability
+
+Prefer immutability when it represents the model naturally.
+
+Do not force immutable representations onto framework models or workflows where
+controlled mutation is simpler and clearer.
+
+## Span and Allocation-Oriented APIs
+
+`Span<T>`, `ReadOnlySpan<T>`, stack allocation, pooling, and similar features are
+performance tools.
+
+Use ordinary arrays, strings, and collections by default.
+
+Introduce allocation-oriented techniques when profiling or a clearly hot path
+justifies the added complexity.
+
+Follow `performance.md`.
+
+## Compatibility
+
+Before using a language feature, confirm that the project's configured language
+version supports it.
+
+Do not silently change `LangVersion` or target framework merely to use newer
+syntax.
+
+## Modernization Tasks
+
+When explicitly asked to modernize code:
+
+1. preserve behavior;
+2. keep the change focused;
+3. prefer readability improvements;
+4. build and test after the change;
+5. do not mix unrelated architecture refactoring into syntax modernization.
+
+## Anti-Patterns
+
+Avoid:
+
+- newest syntax for its own sake;
+- converting every class to a record;
+- `record struct` merely to avoid allocations;
+- `Span<T>` without a performance reason;
+- deeply nested patterns;
+- mass constructor conversion;
+- changing language/framework versions without approval.

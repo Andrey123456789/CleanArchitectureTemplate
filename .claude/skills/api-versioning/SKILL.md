@@ -1,158 +1,210 @@
 ---
 name: api-versioning
 description: >
-  API versioning strategies for ASP.NET Core. Covers Asp.Versioning library,
-  URL segment, header, and query string strategies, version deprecation, and
-  OpenAPI integration.
-  Load this skill when adding versioning to an API, evolving an API with breaking
-  changes, or when the user mentions "API version", "versioning", "v1/v2",
-  "Asp.Versioning", "deprecation", "breaking change", or "backward compatibility".
+  API versioning guidance for ASP.NET Core Controller APIs. Covers when API
+  versioning is actually needed, Asp.Versioning, URL/header/query strategies,
+  breaking versus compatible changes, deprecation, OpenAPI integration, and
+  version migration. Use when introducing or evolving multiple API contract
+  versions or discussing backward compatibility.
 ---
 
 # API Versioning
 
 ## Core Principles
 
-1. **Version from day one** — Adding versioning later is painful. Start with a version in the URL even if you only have v1.
-2. **URL segment versioning is the default** — `/api/v1/orders` is the most discoverable and cache-friendly strategy.
-3. **Never break existing versions** — Add a new version for breaking changes. Deprecate the old version with a timeline.
-4. **Version the API, not individual endpoints** — All endpoints in a version group share the same version number.
+1. Do not introduce API versioning merely because an API exists.
+2. Add explicit versioning when contract stability and backward compatibility
+   justify the additional complexity.
+3. Once a published API version is relied on by external clients, avoid breaking
+   that contract silently.
+4. Breaking contract changes normally require a new API version.
+5. Compatible additions normally remain in the current version.
+6. Versioning belongs to the API contract, not Domain or Application.
 
-## Patterns
+## When Versioning Is Useful
 
-### Setup with Asp.Versioning
+Explicit API versioning is most useful when:
 
-```csharp
-// Program.cs
-builder.Services.AddApiVersioning(options =>
-{
-    options.DefaultApiVersion = new ApiVersion(1, 0);
-    options.AssumeDefaultVersionWhenUnspecified = true;
-    options.ReportApiVersions = true;
-    options.ApiVersionReader = new UrlSegmentApiVersionReader();
-})
-.AddApiExplorer(options =>
-{
-    options.GroupNameFormat = "'v'VVV";
-    options.SubstituteApiVersionInUrl = true;
-});
+- external clients cannot be upgraded atomically with the server;
+- multiple client generations must coexist;
+- the API is public or consumed by independent teams;
+- breaking contract changes are expected;
+- a migration window between contracts is required.
+
+For a small application where frontend and backend are deployed together,
+explicit API versioning may provide little value.
+
+Do not add `v1` automatically without considering whether the project actually
+needs a long-lived versioning contract.
+
+## Strategy
+
+When explicit versioning is required, URL-segment versioning is a clear default
+for many HTTP APIs:
+
+```text
+/api/v1/orders
+/api/v2/orders
 ```
 
-### URL Segment Versioning (Recommended)
+Benefits include:
+
+- visible version in the URI;
+- easy routing and troubleshooting;
+- clear generated documentation.
+
+Header and query-string versioning are valid alternatives when project
+requirements justify them.
+
+Use one strategy consistently.
+
+## Asp.Versioning Setup
+
+For Controller-based APIs, use the Controller integration of `Asp.Versioning`.
 
 ```csharp
-var v1 = app.NewApiVersionSet()
-    .HasApiVersion(new ApiVersion(1, 0))
-    .Build();
-
-var v2 = app.NewApiVersionSet()
-    .HasApiVersion(new ApiVersion(2, 0))
-    .Build();
-
-app.MapGroup("/api/v{version:apiVersion}/orders")
-    .WithApiVersionSet(v1)
-    .WithTags("Orders")
-    .MapOrderEndpointsV1();
-
-app.MapGroup("/api/v{version:apiVersion}/orders")
-    .WithApiVersionSet(v2)
-    .WithTags("Orders")
-    .MapOrderEndpointsV2();
+builder.Services
+    .AddApiVersioning(options =>
+    {
+        options.ReportApiVersions = true;
+        options.ApiVersionReader =
+            new UrlSegmentApiVersionReader();
+    })
+    .AddMvc()
+    .AddApiExplorer(options =>
+    {
+        options.GroupNameFormat = "'v'VVV";
+        options.SubstituteApiVersionInUrl = true;
+    });
 ```
 
-### Header Versioning (Alternative)
+Do not add the package until the project has actually adopted API versioning.
+
+## Controller Versions
 
 ```csharp
-options.ApiVersionReader = new HeaderApiVersionReader("X-Api-Version");
-
-// Client sends: X-Api-Version: 2.0
-```
-
-### Deprecating a Version
-
-```csharp
-var v1 = app.NewApiVersionSet()
-    .HasDeprecatedApiVersion(new ApiVersion(1, 0))
-    .HasApiVersion(new ApiVersion(2, 0))
-    .Build();
-
-// Response headers will include: api-deprecated-versions: 1.0
-```
-
-### Version-Specific Endpoint Groups
-
-```csharp
-public static class OrderEndpointsV1
+[ApiController]
+[ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/orders")]
+public sealed class OrdersV1Controller(
+    IOrderService orders)
+    : ControllerBase
 {
-    public static RouteGroupBuilder MapOrderEndpointsV1(this RouteGroupBuilder group)
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<OrderResponseV1>> GetById(
+        Guid id,
+        CancellationToken cancellationToken)
     {
-        group.MapGet("/{id:guid}", GetOrderV1);
-        group.MapPost("/", CreateOrderV1);
-        return group;
-    }
+        var order = await orders.GetByIdAsync(
+            id,
+            cancellationToken);
 
-    private static async Task<Results<Ok<OrderResponseV1>, NotFound>> GetOrderV1(
-        Guid id, ISender sender, CancellationToken ct)
-    {
-        // V1 response shape
-        var result = await sender.Send(new GetOrder.Query(id), ct);
-        return result.IsSuccess
-            ? TypedResults.Ok(result.Value.ToV1())
-            : TypedResults.NotFound();
-    }
-}
+        if (order is null)
+            return NotFound();
 
-public static class OrderEndpointsV2
-{
-    public static RouteGroupBuilder MapOrderEndpointsV2(this RouteGroupBuilder group)
-    {
-        group.MapGet("/{id:guid}", GetOrderV2);
-        group.MapPost("/", CreateOrderV2);
-        return group;
-    }
-
-    private static async Task<Results<Ok<OrderResponseV2>, NotFound>> GetOrderV2(
-        Guid id, ISender sender, CancellationToken ct)
-    {
-        // V2 response shape — includes new fields
-        var result = await sender.Send(new GetOrder.Query(id), ct);
-        return result.IsSuccess
-            ? TypedResults.Ok(result.Value.ToV2())
-            : TypedResults.NotFound();
+        return Ok(OrderResponseV1.From(order));
     }
 }
 ```
 
-## Anti-patterns
-
-### Don't Version Individual Endpoints
+A second contract may expose another controller/version:
 
 ```csharp
-// BAD — inconsistent versioning within a group
-app.MapGet("/api/v1/orders", ListOrdersV1);
-app.MapGet("/api/v2/orders/{id}", GetOrderV2); // V2 only for this endpoint?
-
-// GOOD — version the entire group
-app.MapGroup("/api/v1/orders").MapOrderEndpointsV1();
-app.MapGroup("/api/v2/orders").MapOrderEndpointsV2();
+[ApiController]
+[ApiVersion("2.0")]
+[Route("api/v{version:apiVersion}/orders")]
+public sealed class OrdersV2Controller(
+    IOrderService orders)
+    : ControllerBase
+{
+}
 ```
 
-### Don't Use Query String Versioning as Default
+Do not create separate Domain or persistence models merely because the API has
+multiple representations.
 
-```csharp
-// BAD for REST APIs — version hidden in query string, not cache-friendly
-GET /api/orders?api-version=2.0
+Different API versions may map the same Application result into different HTTP
+contracts.
 
-// GOOD — version in URL, discoverable and cacheable
-GET /api/v2/orders
-```
+## Breaking Changes
 
-## Decision Guide
+Changes that commonly justify a new API version include:
 
-| Scenario | Recommendation |
-|----------|---------------|
-| New public API | URL segment versioning from day one |
-| Internal API between services | Header versioning (cleaner URLs) |
-| Breaking response shape change | New version |
-| Adding new optional fields | Same version (backwards compatible) |
-| Deprecating a version | Mark deprecated, set sunset date, document migration path |
+- removing a field clients may depend on;
+- changing a field's meaning or type;
+- changing required input;
+- changing resource or workflow semantics incompatibly;
+- removing an endpoint;
+- changing previously documented HTTP behavior incompatibly.
+
+Do not determine breaking compatibility solely from whether the code compiles.
+
+## Compatible Changes
+
+Changes that are often compatible include:
+
+- adding an optional response field;
+- adding a new endpoint;
+- adding an optional query parameter with backward-compatible behavior;
+- internal implementation changes that preserve the API contract.
+
+Client-generation behavior should also be considered when OpenAPI clients are
+used.
+
+## Deprecation
+
+Deprecation is a migration process, not merely an attribute.
+
+When deprecating a version:
+
+- mark it deprecated in versioning metadata;
+- document the replacement version;
+- provide a realistic migration period;
+- communicate removal timing to consumers;
+- keep the old version working during the promised support period.
+
+Do not remove an externally consumed version without considering its published
+support contract.
+
+## OpenAPI
+
+Generate separate or clearly grouped OpenAPI descriptions for supported versions
+when clients need them.
+
+Follow the `openapi` skill for documentation details.
+
+The documented version must match runtime routing and Controller metadata.
+
+## HTTP Semantics
+
+Version changes do not override normal HTTP semantics.
+
+Follow the `http-api` skill for status codes, conditional requests,
+ProblemDetails, idempotency, and other HTTP behavior.
+
+## Testing
+
+When multiple versions coexist, test meaningful differences between them.
+
+Useful cases include:
+
+- version routing;
+- version-specific response shape;
+- deprecated version remains operational during support period;
+- unsupported version behavior;
+- shared Application behavior remains consistent where intended.
+
+Do not duplicate identical tests merely because two versions use the same
+Application behavior.
+
+## Anti-Patterns
+
+Avoid:
+
+- adding versioning without a compatibility requirement;
+- Minimal API version-group examples in a Controller-based project;
+- duplicating Domain models per API version;
+- changing an existing version's contract incompatibly;
+- creating a new API version for every implementation change;
+- silently removing deprecated versions;
+- mixing URL, header, and query versioning without a concrete reason.

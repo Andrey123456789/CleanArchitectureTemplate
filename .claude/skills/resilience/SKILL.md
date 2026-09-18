@@ -5,8 +5,6 @@ description: >
   Microsoft.Extensions.Resilience and Microsoft.Extensions.Http.Resilience.
   Covers timeouts, retries, circuit breakers, fallback, hedging, rate limiting,
   idempotency, Retry-After, telemetry, and provider-specific retry behavior.
-  Covers timeouts, retries, circuit breakers, fallback, hedging, rate limiting, idempotency,
-  Retry-After, telemetry, and provider-specific retry behavior.
   Use when designing or reviewing transient-failure handling.
 ---
 
@@ -37,9 +35,13 @@ The modern Microsoft resilience packages are implemented on top of Polly v8,
 but application guidance should normally use the Microsoft.Extensions
 resilience APIs rather than introducing direct Polly configuration.
 
-Use direct Polly APIs only when a concrete requirement is not adequately covered
-by the Microsoft.Extensions resilience integration and the additional dependency
-and lower-level configuration are justified.
+Do not add a direct Polly package reference or configure Polly APIs in
+application code by default.
+
+Treat direct Polly usage as an explicit exception. Use it only when a concrete
+requirement cannot be expressed adequately through `Microsoft.Extensions.Resilience`
+or `Microsoft.Extensions.Http.Resilience`, and document why the lower-level API
+is required.
 
 ## HTTP Resilience
 

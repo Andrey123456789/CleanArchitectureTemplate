@@ -1,29 +1,93 @@
 ---
 name: ci-cd
 description: >
-  CI/CD pipelines for .NET applications. Covers GitHub Actions and Azure DevOps
-  YAML pipelines with build, test, publish, and deploy stages.
-  Load this skill when setting up continuous integration, automated testing,
-  deployment workflows, or when the user mentions "CI/CD", "pipeline",
-  "GitHub Actions", "Azure DevOps", "workflow", "deploy", "build pipeline",
-  "publish", "NuGet push", "release", or "continuous integration".
+  CI/CD guidance for .NET backend and Angular frontend projects. Covers GitHub
+  Actions and equivalent CI systems, restore/build/test flows, artifacts,
+  frontend validation, dependency/security checks, container publishing,
+  deployment separation, secrets, and production migration handling.
+  Use when creating or reviewing build, test, release, or deployment pipelines.
 ---
 
 # CI/CD
 
 ## Core Principles
 
-1. **Pipeline as code** — YAML pipelines committed to the repo. No click-ops in the UI.
-2. **Fast feedback** — Build and test on every push. Cache NuGet packages. Fail fast.
-3. **Build once, deploy many** — Build the artifact once, promote it through environments (dev → staging → production).
-4. **Never skip tests** — Tests gate the pipeline. No deployment without passing tests.
+1. Keep pipeline definitions in source control.
+2. CI should reproduce the repository's supported build and test commands.
+3. Build/test failures must remain visible.
+4. Do not hardcode environment secrets.
+5. Build deployable artifacts reproducibly.
+6. Keep deployment/environment configuration outside compiled artifacts where
+   practical.
+7. Production database migration is an explicit deployment/operational step.
+8. Add pipeline stages according to the actual project, not generic boilerplate.
 
-## Patterns
+## Repository Discovery
 
-### GitHub Actions — Build + Test
+Before writing a pipeline, inspect the repository.
+
+Determine whether it contains:
+
+```text
+.NET backend
+Angular frontend
+test projects
+Dockerfiles
+database/provider-specific integration tests
+generated clients
+deployment artifacts
+```
+
+Do not assume PostgreSQL, Redis, Docker, or frontend tooling exists.
+
+## Backend CI
+
+Typical .NET flow:
+
+```bash
+dotnet restore
+dotnet build --no-restore --configuration Release
+dotnet test --no-build --configuration Release
+```
+
+Run formatting/analyzers when the repository has adopted them as enforced checks.
+
+For example:
+
+```bash
+dotnet format --verify-no-changes --no-restore
+```
+
+Do not turn an optional local formatter into a mandatory CI gate without the
+project adopting that policy.
+
+## Frontend CI
+
+When an Angular frontend exists, use the lockfile-based package installation:
+
+```bash
+npm ci
+```
+
+Then run the scripts defined by that frontend project, normally covering:
+
+```text
+build
+unit tests when configured
+lint when configured
+```
+
+Do not invent an npm script that does not exist.
+
+Do not use `npm install` in CI when a maintained lockfile allows `npm ci`.
+
+Follow the `angular` skill for frontend-specific guidance.
+
+## GitHub Actions Shape
+
+A typical workflow can separate backend and frontend verification:
 
 ```yaml
-# .github/workflows/ci.yml
 name: CI
 
 on:
@@ -32,185 +96,175 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  DOTNET_VERSION: '10.0.x'
-  DOTNET_NOLOGO: true
-  DOTNET_CLI_TELEMETRY_OPTOUT: true
-
 jobs:
-  build-and-test:
+  backend:
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_DB: testdb
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v5
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          dotnet-version: 10.0.x
 
-      - name: Restore
-        run: dotnet restore
+      - run: dotnet restore
+      - run: dotnet build --no-restore --configuration Release
+      - run: dotnet test --no-build --configuration Release
 
-      - name: Build
-        run: dotnet build --no-restore --configuration Release
-
-      - name: Format check
-        run: dotnet format --verify-no-changes --no-restore
-
-      - name: Test
-        run: dotnet test --no-build --configuration Release --logger trx --results-directory TestResults
-        env:
-          ConnectionStrings__Default: "Host=localhost;Database=testdb;Username=postgres;Password=postgres"
-
-      - name: Publish test results
-        uses: actions/upload-artifact@v5
-        if: always()
-        with:
-          name: test-results
-          path: TestResults/*.trx
-```
-
-### GitHub Actions — Build + Publish Docker Image
-
-```yaml
-# .github/workflows/publish.yml
-name: Publish
-
-on:
-  push:
-    tags: ['v*']
-
-jobs:
-  publish:
+  frontend:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+
+    defaults:
+      run:
+        working-directory: frontend/MyApp.Web
 
     steps:
       - uses: actions/checkout@v5
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/setup-node@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/MyApp.Web/package-lock.json
 
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
-            ghcr.io/${{ github.repository }}:latest
+      - run: npm ci
+      - run: npm run build
 ```
 
-### Azure DevOps — Build + Test
+Adapt action and runtime versions to the repository's supported versions.
 
-Same restore → build → format → test flow as GitHub Actions. Key differences:
+Add frontend test/lint commands only when the project defines them.
 
-```yaml
-# azure-pipelines.yml
-trigger:
-  branches:
-    include: [main]
-  paths:
-    exclude: ['*.md', docs/]
+## Integration-Test Infrastructure
 
-pool:
-  vmImage: 'ubuntu-latest'          # vs runs-on: ubuntu-latest
+Provide external services in CI only when tests actually require them.
 
-variables:
-  dotnetVersion: '10.0.x'
+Examples may include:
 
-# Key task differences from GitHub Actions:
-#   Setup .NET:  task: UseDotNet@2  (inputs: version: $(dotnetVersion))
-#   Test results: task: PublishTestResults@2  (testResultsFormat: VSTest)
-#   Steps use `script:` + `displayName:` instead of `- name:` + `run:`
-#   Services (e.g., Postgres) require a separate Docker task or pipeline service connection
+```text
+SQL Server
+PostgreSQL
+Redis
+message broker
 ```
 
-### NuGet Package Publishing
+Do not hardcode one database provider into the generic template.
 
-```yaml
-# Part of GitHub Actions workflow
-- name: Pack
-  run: dotnet pack src/MyLibrary -c Release -o ./nupkg --no-build
+The integration test environment must be isolated from Development and
+Production data.
 
-- name: Push to NuGet
-  run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+Follow the `testing` skill.
+
+## Dependency Security
+
+For .NET 10, package vulnerability inspection may use:
+
+```bash
+dotnet package list --vulnerable --include-transitive
 ```
 
-## Anti-patterns
+NuGet auditing is also integrated into restore for modern .NET SDKs.
 
-### Don't Build Different Artifacts per Environment
+Treat dependency findings according to the project's security policy.
 
-```yaml
-# BAD — building separately for each environment
-- script: dotnet publish -c Debug   # for dev
-- script: dotnet publish -c Release # for prod
+Do not automatically upgrade packages in CI unless the project has explicitly
+adopted automated dependency updates.
 
-# GOOD — build once, deploy everywhere
-- script: dotnet publish -c Release -o ./publish
-# Then deploy the same ./publish artifact to dev, staging, prod
+## Build Artifacts
+
+When a deployment artifact is required, produce it deliberately:
+
+```bash
+dotnet publish \
+  src/MyApp.Api/MyApp.Api.csproj \
+  --configuration Release \
+  --output ./artifacts/api \
+  --no-build
 ```
 
-### Don't Skip Format Checks in CI
+For Angular:
 
-```yaml
-# BAD — no format enforcement
-steps:
-  - run: dotnet build
-  - run: dotnet test
-
-# GOOD — format check catches style issues early
-steps:
-  - run: dotnet build
-  - run: dotnet format --verify-no-changes
-  - run: dotnet test
+```bash
+npm run build
 ```
 
-### Don't Hardcode Secrets in Pipelines
+Store or publish only artifacts required by later stages.
 
-```yaml
-# BAD — secret in pipeline YAML
-env:
-  DB_PASSWORD: "my-secret-password"
+## Docker
 
-# GOOD — use pipeline secrets
-env:
-  DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+When the project deploys containers, follow the `docker` skill.
+
+Build and publish the image from CI only when container deployment is part of
+the project.
+
+Do not introduce Docker into the pipeline merely because the skill supports it.
+
+## Build Once, Promote
+
+For a deployment model that supports artifact promotion, prefer promoting the
+same tested artifact/image through environments rather than recompiling
+different production code for every environment.
+
+Environment-specific behavior should normally come from runtime configuration.
+
+## Secrets
+
+Use the CI platform's secret/identity mechanism.
+
+Do not place real secrets directly in pipeline YAML.
+
+Prefer workload/federated identity over long-lived deployment credentials when
+the chosen platform supports it.
+
+## Database Migrations
+
+Production migrations must not run automatically from normal application
+startup.
+
+If deployment performs migrations:
+
+- make the migration step explicit;
+- use the project's approved credentials;
+- run it at a controlled point in deployment;
+- fail visibly on migration failure;
+- do not seed Development data in Production.
+
+Migration scripts/artifacts may be generated earlier in CI and executed during
+deployment.
+
+## Deployment
+
+CI and CD may be separate workflows.
+
+A successful CI build does not automatically imply that every branch should
+deploy.
+
+Use environment protection/approval where appropriate to the actual hosting
+platform.
+
+## Verification
+
+Before considering a pipeline complete, verify that it:
+
+```text
+restores from a clean environment
+builds backend
+builds frontend when present
+runs configured tests
+does not depend on developer-machine state
+does not expose secrets
+produces expected artifacts
 ```
 
-## Decision Guide
+## Anti-Patterns
 
-| Scenario | Recommendation |
-|----------|---------------|
-| Open source project | GitHub Actions |
-| Enterprise with Azure | Azure DevOps Pipelines |
-| Docker deployment | Multi-stage build in CI, push to container registry |
-| NuGet library | Build → Test → Pack → Push on tag |
-| Database migrations | Run in CI test stage, script for production |
-| Environment promotion | Same artifact, different configuration |
+Avoid:
+
+- project-specific database infrastructure in a generic pipeline;
+- deployment secrets in YAML;
+- rebuilding different source for every environment without a reason;
+- suppressing failing tests to permit deployment;
+- automatic production seeding;
+- automatic production migrations from application startup;
+- assuming Docker deployment;
+- assuming frontend scripts that the repository does not define.
