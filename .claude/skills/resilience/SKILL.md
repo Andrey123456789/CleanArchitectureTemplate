@@ -1,343 +1,242 @@
 ---
 name: resilience
 description: >
-  Resilience patterns for .NET 10 applications using Polly v8.
-  Covers retry, circuit breaker, timeout, fallback, rate limiter, hedging,
-  and composing resilience pipelines.
-  Load this skill when implementing retry logic, circuit breakers, handling
-  transient failures, or when the user mentions "Polly", "resilience",
-  "retry", "circuit breaker", "timeout", "fallback", "rate limit",
-  "hedging", "transient fault", "HttpClient resilience", or "resilience pipeline".
+  Resilience guidance for .NET external dependencies using Polly v8 and
+  Microsoft.Extensions.Http.Resilience where appropriate. Covers timeouts,
+  retries, circuit breakers, fallback, hedging, rate limiting, idempotency,
+  Retry-After, telemetry, and provider-specific retry behavior.
+  Use when designing or reviewing transient-failure handling.
 ---
 
 # Resilience
 
 ## Core Principles
 
-1. **Polly v8 resilience pipelines, not v7 policies** — Polly v8 replaced `Policy` with `ResiliencePipeline`. Never use `PolicyBuilder`, `Policy.Handle<>()`, or `ISyncPolicy`. The new API is composable, type-safe, and integrates natively with `IHttpClientFactory`.
-2. **Configure via `AddResilienceHandler`, not manual wrapping** — For HTTP calls, use `Microsoft.Extensions.Http.Resilience` which adds pipelines directly to `HttpClient` via DI. No manual `ExecuteAsync` wrapping.
-3. **Compose strategies, don't nest them** — A single `ResiliencePipeline` can chain retry + circuit breaker + timeout. Strategies execute outer-to-inner (first added = outermost). No need for nested try/catch or manual orchestration.
-4. **Always set timeouts** — Every external call needs a timeout. Use Polly's `AddTimeout()` as the innermost strategy so it applies per-attempt, and optionally an outer timeout for total elapsed time.
-5. **Instrument everything** — Polly v8 emits `Metering` events and supports `TelemetryOptions` for OpenTelemetry. Use them to monitor retry rates, circuit breaker state, and timeout frequency.
+1. Resilience policies must match failure and operation semantics.
+2. A retry is safe only when repeating the operation is safe.
+3. External I/O should have a bounded execution time.
+4. Circuit breakers are useful when repeated dependency failures would otherwise
+   consume resources or amplify an outage.
+5. Fallback is valid only when the fallback result is semantically acceptable.
+6. Do not add resilience mechanisms merely because they are available.
+7. Observe retries/timeouts/circuit behavior when they materially affect operations.
 
-## Patterns
+## HTTP Resilience
 
-### HTTP Client Resilience (Recommended Default)
+For `HttpClient`, `Microsoft.Extensions.Http.Resilience` provides standard
+resilience integration.
 
 ```csharp
-// Program.cs — Standard resilience handler covers 90% of use cases
-builder.Services.AddHttpClient<IPaymentGateway, PaymentGatewayClient>(client =>
+services.AddHttpClient<CatalogClient>(client =>
 {
-    client.BaseAddress = new Uri("https://api.payments.example.com");
+    client.BaseAddress = catalogUri;
 })
-.AddStandardResilienceHandler(); // Retry + circuit breaker + timeout out of the box
-
-// That's it. The standard handler configures:
-// - Retry: 3 attempts, exponential backoff, jitter
-// - Circuit breaker: 10% failure ratio over 30s sampling, 30s break
-// - Attempt timeout: 10s per attempt
-// - Total request timeout: 30s
+.AddStandardResilienceHandler();
 ```
 
-**Why**: `AddStandardResilienceHandler()` from `Microsoft.Extensions.Http.Resilience` applies production-ready defaults. Override only when you need different thresholds.
+The standard handler is useful when its behavior fits the remote API.
 
-### Custom HTTP Resilience Configuration
+It is not mandatory for every HTTP client.
 
-```csharp
-builder.Services.AddHttpClient<ICatalogService, CatalogServiceClient>(client =>
-{
-    client.BaseAddress = new Uri("https://api.catalog.example.com");
-})
-.AddResilienceHandler("catalog", builder =>
-{
-    // Total timeout — outermost, caps total elapsed time
-    builder.AddTimeout(TimeSpan.FromSeconds(15));
+Review retry behavior carefully for state-changing requests.
 
-    // Retry — exponential backoff with jitter
-    builder.AddRetry(new HttpRetryStrategyOptions
-    {
-        MaxRetryAttempts = 3,
-        BackoffType = DelayBackoffType.Exponential,
-        UseJitter = true,
-        Delay = TimeSpan.FromMilliseconds(500),
-        ShouldHandle = static args => ValueTask.FromResult(
-            args.Outcome.Result?.StatusCode is HttpStatusCode.RequestTimeout
-                or HttpStatusCode.TooManyRequests
-                or HttpStatusCode.ServiceUnavailable
-                || args.Outcome.Exception is HttpRequestException)
-    });
+Detailed HttpClient lifetime/configuration guidance belongs to the
+`httpclient-factory` skill.
 
-    // Circuit breaker — prevent cascading failures
-    builder.AddCircuitBreaker(new HttpCircuitBreakerStrategyOptions
-    {
-        FailureRatio = 0.5,
-        SamplingDuration = TimeSpan.FromSeconds(10),
-        MinimumThroughput = 10,
-        BreakDuration = TimeSpan.FromSeconds(30)
-    });
+## Timeouts
 
-    // Per-attempt timeout — innermost
-    builder.AddTimeout(TimeSpan.FromSeconds(5));
-});
+A dependency call should not wait indefinitely.
+
+Distinguish:
+
+```text
+attempt timeout
 ```
 
-**Why**: Named resilience handlers let you tune per-service. The order matters: total timeout > retry > circuit breaker > attempt timeout.
+from:
 
-### Non-HTTP Resilience Pipeline
-
-```csharp
-// For database calls, message queues, or any non-HTTP operation
-builder.Services.AddResiliencePipeline("database", builder =>
-{
-    builder
-        .AddRetry(new RetryStrategyOptions
-        {
-            MaxRetryAttempts = 3,
-            BackoffType = DelayBackoffType.Exponential,
-            Delay = TimeSpan.FromMilliseconds(200),
-            ShouldHandle = new PredicateBuilder()
-                .Handle<TimeoutException>()
-                .Handle<InvalidOperationException>(ex =>
-                    ex.Message.Contains("deadlock", StringComparison.OrdinalIgnoreCase))
-        })
-        .AddTimeout(TimeSpan.FromSeconds(10));
-});
-
-// Inject and use
-public sealed class OrderRepository(
-    AppDbContext db,
-    [FromKeyedServices("database")] ResiliencePipeline pipeline)
-{
-    public async Task<Order?> GetByIdAsync(Guid id, CancellationToken ct)
-    {
-        return await pipeline.ExecuteAsync(
-            async token => await db.Orders.FindAsync([id], token),
-            ct);
-    }
-}
+```text
+total operation timeout
 ```
 
-**Why**: `AddResiliencePipeline` registers a named pipeline in DI. Inject with `[FromKeyedServices]` for clean, testable code.
+especially when retries are enabled.
 
-### Typed Resilience Pipeline
+Choose values from actual latency requirements rather than copying arbitrary
+numbers from an example.
 
-```csharp
-// When the operation returns a specific type, use ResiliencePipeline<T>
-builder.Services.AddResiliencePipeline<string, HttpResponseMessage>("external-api", builder =>
-{
-    builder
-        .AddFallback(new FallbackStrategyOptions<HttpResponseMessage>
-        {
-            FallbackAction = static args =>
-            {
-                var response = new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent("{\"status\":\"degraded\",\"data\":[]}")
-                };
-                return Outcome.FromResultAsValueTask(response);
-            },
-            ShouldHandle = static args => ValueTask.FromResult(
-                args.Outcome.Exception is not null
-                || args.Outcome.Result?.IsSuccessStatusCode == false)
-        })
-        .AddRetry(new RetryStrategyOptions<HttpResponseMessage>
-        {
-            MaxRetryAttempts = 2,
-            Delay = TimeSpan.FromMilliseconds(500)
-        })
-        .AddTimeout(TimeSpan.FromSeconds(5));
-});
+## Retry
+
+Retry only failures that are plausibly transient.
+
+Possible examples:
+
+- selected network failures;
+- temporary service unavailability;
+- rate limiting when retry is allowed;
+- transient provider-specific database failures.
+
+Do not retry:
+
+- validation errors;
+- authentication/authorization failures;
+- permanent `404` outcomes;
+- deterministic business rejection;
+- non-idempotent operations without a duplicate-prevention strategy.
+
+## Retry-After
+
+When a remote endpoint returns `Retry-After`, prefer respecting the server's
+retry guidance when the client policy supports it.
+
+Do not hammer a rate-limited dependency using an independent aggressive retry
+schedule.
+
+## Idempotency
+
+Before retrying a write ask:
+
+```text
+If the first attempt succeeded remotely but the response was lost,
+what happens when we send the operation again?
 ```
 
-**Why**: Typed pipelines let you add fallback strategies that return a default value when all retries are exhausted — critical for graceful degradation.
+If the answer is "duplicate side effect", automatic retry is unsafe.
 
-### Hedging (Parallel Requests)
+Use an API-supported idempotency mechanism when appropriate.
 
-```csharp
-builder.Services.AddHttpClient<ISearchService, SearchServiceClient>()
-    .AddResilienceHandler("search-hedging", builder =>
-    {
-        builder.AddHedging(new HttpHedgingStrategyOptions
-        {
-            MaxHedgedAttempts = 2,
-            Delay = TimeSpan.FromMilliseconds(500) // Send parallel request after 500ms
-        });
-        builder.AddTimeout(TimeSpan.FromSeconds(3));
-    });
+Do not invent a client-side `Idempotency-Key` unless the remote service actually
+supports that contract.
+
+## Circuit Breaker
+
+Use a circuit breaker when repeated calls to a failing dependency would create
+additional load or latency.
+
+Do not add a circuit breaker to a dependency that has no meaningful repeated
+failure pattern.
+
+A circuit breaker should have operational visibility when it is important in
+production.
+
+## Fallback
+
+Fallback must preserve acceptable business semantics.
+
+Valid examples may include:
+
+- stale cached read data where staleness is explicitly acceptable;
+- optional enrichment omitted when its service is unavailable.
+
+Bad fallback:
+
+```text
+payment provider unavailable
+→ pretend payment succeeded
 ```
 
-**Why**: Hedging sends a parallel request if the first hasn't responded within the delay. Use for latency-sensitive reads where you can tolerate duplicate work.
+Do not hide correctness failures behind fallback values.
 
-### Telemetry Integration
+## Hedging
 
-```csharp
-builder.Services.AddResiliencePipeline("monitored", (builder, context) =>
-{
-    // Polly v8 emits metrics via System.Diagnostics.Metrics automatically.
-    // ConfigureTelemetry wires structured logging for strategy events.
-    builder
-        .ConfigureTelemetry(new TelemetryOptions
-        {
-            LoggerFactory = context.ServiceProvider.GetRequiredService<ILoggerFactory>()
-        })
-        .AddRetry(new RetryStrategyOptions { MaxRetryAttempts = 3 })
-        .AddCircuitBreaker(new CircuitBreakerStrategyOptions())
-        .AddTimeout(TimeSpan.FromSeconds(10));
-});
+Hedging issues parallel or delayed duplicate attempts.
 
-// In Program.cs — wire up OpenTelemetry to capture Polly metrics
-builder.Services.AddOpenTelemetry()
-    .WithMetrics(metrics => metrics.AddMeter("Polly"));
+Use it only for operations that are safe to execute multiple times, typically
+idempotent reads against interchangeable endpoints.
+
+Do not hedge state-changing operations by default.
+
+## Database Resilience
+
+Do not wrap normal EF Core operations in a generic Polly retry pipeline by
+default.
+
+When a database provider supports transient retry through EF Core execution
+strategies/provider configuration, prefer that mechanism.
+
+Database transaction/retry interaction must be handled according to the
+provider's EF Core guidance.
+
+Do not assume an HTTP retry policy is appropriate for database operations.
+
+## Message Publishing
+
+Retrying message publication requires understanding the broker and delivery
+semantics.
+
+A retry may produce duplicate delivery.
+
+Use idempotent consumers, broker-supported deduplication, outbox patterns, or
+other mechanisms when the business requirement needs them.
+
+Do not claim exactly-once delivery merely because a retry policy exists.
+
+## Inbound Rate Limiting
+
+ASP.NET Core rate limiting protects this API from excessive incoming traffic.
+
+It is conceptually different from outbound retry/resilience.
+
+When a request is rejected because of rate limiting:
+
+```text
+429 Too Many Requests
 ```
 
-### Rate Limiting (.NET Built-in)
+is the normal HTTP response.
 
-.NET provides built-in rate limiting middleware via `AddRateLimiter()` — no external packages needed. Algorithms: `AddFixedWindowLimiter`, `AddSlidingWindowLimiter`, `AddTokenBucketLimiter`, `AddConcurrencyLimiter`.
+Include `Retry-After` when a useful retry delay is known.
 
-```csharp
-builder.Services.AddRateLimiter(options =>
-{
-    options.AddFixedWindowLimiter("fixed", opt =>
-    {
-        opt.PermitLimit = 100;
-        opt.Window = TimeSpan.FromSeconds(60);
-        opt.QueueLimit = 0;
-    });
+Detailed HTTP semantics belong to the `http-api` skill.
 
-    // Always return ProblemDetails with Retry-After on 429
-    options.OnRejected = async (context, ct) =>
-    {
-        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
-            context.HttpContext.Response.Headers.RetryAfter =
-                ((int)retryAfter.TotalSeconds).ToString();
-        await context.HttpContext.Response.WriteAsJsonAsync(
-            new ProblemDetails { Title = "Too many requests", Status = 429 }, ct);
-    };
-});
+## Cancellation
 
-app.UseRateLimiter();
-app.MapGet("/api/orders", ListOrders).RequireRateLimiting("fixed");
-```
+Cancellation from the caller is not a transient failure that should be retried.
 
-## Anti-patterns
+Propagate cancellation through resilience pipelines.
 
-### BAD: Using Polly v7 API
+Do not convert client cancellation into repeated outbound attempts.
 
-```csharp
-// BAD — v7 policy syntax, do not use
-var retryPolicy = Policy
-    .Handle<HttpRequestException>()
-    .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)));
+## Telemetry
 
-var response = await retryPolicy.ExecuteAsync(() => httpClient.GetAsync("/api/data"));
-```
+Observe resilience behavior when it matters operationally.
 
-### GOOD: Polly v8 Resilience Pipeline
+Useful signals include:
 
-```csharp
-// GOOD — v8 pipeline via DI
-builder.Services.AddHttpClient<IDataService, DataServiceClient>()
-    .AddStandardResilienceHandler();
-```
+- retry counts;
+- timeout frequency;
+- circuit state;
+- rate-limit rejection;
+- dependency latency.
 
----
+Do not require OpenTelemetry solely because Polly is present.
 
-### BAD: Wrapping Every Call Manually
+Use the telemetry stack adopted by the project.
 
-```csharp
-// BAD — manual resilience per call site
-public async Task<Order> GetOrderAsync(Guid id)
-{
-    try
-    {
-        return await _pipeline.ExecuteAsync(async ct =>
-            await _httpClient.GetFromJsonAsync<Order>($"/orders/{id}", ct));
-    }
-    catch (TimeoutRejectedException)
-    {
-        return Order.Empty;
-    }
-    catch (BrokenCircuitException)
-    {
-        return Order.Empty;
-    }
-}
-```
+## Anti-Patterns
 
-### GOOD: Pipeline Handles Everything via HttpClient DI
+Avoid:
 
-```csharp
-// GOOD — resilience is configured at the HttpClient level
-public async Task<Order?> GetOrderAsync(Guid id, CancellationToken ct)
-{
-    var response = await _httpClient.GetAsync($"/orders/{id}", ct);
-    if (!response.IsSuccessStatusCode) return null;
-    return await response.Content.ReadFromJsonAsync<Order>(ct);
-}
-```
-
----
-
-### BAD: Retry on Non-Idempotent Operations
-
-```csharp
-// BAD — retrying a POST that creates a resource risks duplicates
-builder.AddRetry(new RetryStrategyOptions
-{
-    MaxRetryAttempts = 5 // This will create 5 orders on transient failures!
-});
-```
-
-### GOOD: Retry Only Idempotent Operations or Use Idempotency Keys
-
-```csharp
-// GOOD — use idempotency key header for non-idempotent operations
-builder.AddRetry(new HttpRetryStrategyOptions
-{
-    MaxRetryAttempts = 3,
-    ShouldHandle = static args => ValueTask.FromResult(
-        args.Outcome.Result?.StatusCode is HttpStatusCode.RequestTimeout
-            or HttpStatusCode.ServiceUnavailable)
-});
-
-// Pair with idempotency key in the request
-httpClient.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
-```
-
----
-
-### BAD: Circuit Breaker Without Monitoring
-
-```csharp
-// BAD — circuit breaker with no visibility into state changes
-builder.AddCircuitBreaker(new CircuitBreakerStrategyOptions());
-// How do you know when it trips? You don't.
-```
-
-### GOOD: Circuit Breaker with Telemetry
-
-```csharp
-// GOOD — Polly v8 metrics captured via OpenTelemetry
-builder.Services.AddOpenTelemetry()
-    .WithMetrics(metrics => metrics.AddMeter("Polly"));
-
-// Dashboard alerts on: polly.circuit_breaker.state = Open
-```
+- retrying every exception;
+- retrying every HTTP status;
+- retrying unsafe writes without idempotency analysis;
+- retrying client cancellation;
+- circuit breakers added without a failure scenario;
+- fallback values that conceal incorrect business results;
+- hedging writes;
+- generic Polly wrappers around EF Core without understanding provider behavior;
+- stacked resilience handlers with overlapping strategies;
+- unbounded retry/timeout combinations.
 
 ## Decision Guide
 
-| Scenario | Strategy | Configuration |
-|----------|----------|---------------|
-| HTTP calls to external APIs | `AddStandardResilienceHandler()` | Use defaults, override only specific thresholds |
-| HTTP with custom thresholds | `AddResilienceHandler("name", ...)` | Named handler with per-service tuning |
-| Database / EF Core calls | `AddResiliencePipeline("db", ...)` | Retry on deadlock/timeout, no circuit breaker |
-| Message queue publishing | `AddResiliencePipeline("mq", ...)` | Retry with exponential backoff, timeout |
-| Latency-sensitive reads | `AddHedging(...)` | Parallel request after delay threshold |
-| Graceful degradation | `AddFallback(...)` | Return cached/default value on total failure |
-| Per-attempt time limit | `AddTimeout(...)` innermost | 2-10s depending on operation |
-| Total operation time limit | `AddTimeout(...)` outermost | Sum of all retries + buffer |
-| Non-idempotent writes | Retry with idempotency key | Or no retry — fail fast |
-| Read-heavy microservice | Standard handler + hedging | Low latency with redundancy |
-| API rate limiting | `AddRateLimiter()` + `RequireRateLimiting()` | Fixed, sliding, or token bucket per endpoint |
-
+| Scenario | Default consideration |
+|---|---|
+| External I/O | Bound execution time |
+| Safe transient HTTP failure | Consider retry |
+| Unsafe write | No retry unless duplicate-safe |
+| `429` from dependency | Respect `Retry-After` where appropriate |
+| Repeated dependency outage | Consider circuit breaker |
+| Optional data unavailable | Consider explicit fallback |
+| Latency-sensitive idempotent read | Consider hedging after measurement |
+| EF transient faults | Prefer provider/EF execution strategy |
+| Incoming request rate limiting | ASP.NET Core rate limiter |

@@ -1,229 +1,259 @@
 ---
 name: authentication
 description: >
-  Authentication and authorization for ASP.NET Core. Covers JWT bearer tokens,
-  OpenID Connect, ASP.NET Identity, authorization policies, role and claim-based
-  authorization, and API key authentication.
-  Load this skill when implementing login, protecting endpoints, designing
-  authorization rules, or when the user mentions "auth", "JWT", "bearer token",
-  "OIDC", "OpenID Connect", "Identity", "claims", "roles", "authorize",
-  "RequireAuthorization", "API key", or "cookie auth".
+  Authentication and authorization guidance for ASP.NET Core Controller APIs.
+  Covers ASP.NET Core authentication schemes, JWT bearer/OIDC, ASP.NET Core
+  Identity, cookies, policies, claims, roles, resource authorization,
+  current-user access, password security, and 401/403 behavior.
+  Use when implementing login, identity, endpoint protection, permissions,
+  roles, claims, JWT, OIDC, cookies, or authorization.
 ---
 
-# Authentication & Authorization
+# Authentication and Authorization
 
 ## Core Principles
 
-1. **Use ASP.NET Identity for user management** — Don't build your own user store. Identity handles password hashing, lockout, two-factor, email confirmation, and (since .NET 10) built-in passkey/WebAuthn support for passwordless login.
-2. **JWT for APIs, cookies for web apps** — APIs use Bearer token authentication; Blazor/MVC apps use cookie authentication.
-3. **Policy-based authorization over roles** — Policies are testable, composable, and more expressive than `[Authorize(Roles = "Admin")]`.
-4. **Never store secrets in code** — Use user secrets in development, Azure Key Vault / environment variables in production.
+1. Authentication determines who the caller is.
+2. Authorization determines what an authenticated caller may do.
+3. Use established ASP.NET Core authentication mechanisms rather than custom
+   token/password security code.
+4. Authorization must be enforced server-side.
+5. Prefer policies when authorization logic is more than a trivial role check.
+6. Keep ASP.NET Core transport/authentication types out of Domain.
+7. Follow the `http-api` skill for `401`, `403`, and deliberate `404` semantics.
 
-## Patterns
+## Choosing Authentication
 
-### JWT Bearer Authentication
+Choose the scheme according to the actual application.
+
+Common options include:
+
+- Bearer/OIDC for an SPA calling an API;
+- cookies for server-rendered interactive web applications;
+- ASP.NET Core Identity when the application owns local users/passwords;
+- an external OpenID Connect/OAuth provider when identity is delegated.
+
+Do not add ASP.NET Core Identity if the application does not own user management.
+
+Do not issue custom JWTs merely because the API needs authentication if an
+existing identity provider already owns token issuance.
+
+## Local User Accounts
+
+When the application owns passwords, use established password-management
+facilities such as ASP.NET Core Identity.
+
+Do not:
+
+- store plaintext passwords;
+- implement custom password hashing;
+- invent password reset token cryptography;
+- store authentication secrets directly in application source.
+
+Use the framework's password hashing, lockout, reset-token, and related security
+features where applicable.
+
+## Bearer Authentication
+
+A Controller API used by an Angular SPA commonly authenticates access tokens
+through Bearer authentication.
+
+Configure token validation according to the issuer that actually issues tokens.
+
+Validate relevant properties such as:
+
+- issuer;
+- audience;
+- signature;
+- lifetime.
+
+Do not disable validation merely to make a token work.
+
+Secrets, signing keys, certificates, and credentials must follow the project's
+configuration/security rules.
+
+## Authorization
+
+Use `[Authorize]` or project-wide authorization policy as appropriate.
 
 ```csharp
-// Program.cs
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)),
-            ClockSkew = TimeSpan.Zero
-        };
-    });
-
-builder.Services.AddAuthorization();
-```
-
-### Token Generation
-
-Use `JsonWebTokenHandler` from `Microsoft.IdentityModel.JsonWebTokens` — it is the maintained, span-based handler that ASP.NET Core itself validates with. `JwtSecurityTokenHandler` (System.IdentityModel.Tokens.Jwt) is the legacy stack.
-
-```csharp
-public sealed class TokenService(IConfiguration config, TimeProvider clock)
+[Authorize]
+[ApiController]
+[Route("api/orders")]
+public sealed class OrdersController : ControllerBase
 {
-    private static readonly JsonWebTokenHandler TokenHandler = new();
-
-    public string GenerateToken(User user, IEnumerable<string> roles)
-    {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"]!));
-        var now = clock.GetUtcNow();
-
-        var descriptor = new SecurityTokenDescriptor
-        {
-            Issuer = config["Jwt:Issuer"],
-            Audience = config["Jwt:Audience"],
-            IssuedAt = now.UtcDateTime,
-            Expires = now.AddHours(1).UtcDateTime,
-            Claims = new Dictionary<string, object>
-            {
-                [JwtRegisteredClaimNames.Sub] = user.Id,
-                [JwtRegisteredClaimNames.Email] = user.Email!,
-                [JwtRegisteredClaimNames.Name] = user.UserName!,
-                ["roles"] = roles.ToArray()
-            },
-            SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256)
-        };
-
-        return TokenHandler.CreateToken(descriptor);
-    }
 }
 ```
 
-### Policy-Based Authorization
+A secure global/fallback policy may make repeating `[Authorize]` unnecessary.
+
+Anonymous access should be deliberate:
 
 ```csharp
-// Define policies
+[AllowAnonymous]
+```
+
+when the project otherwise defaults to authenticated access.
+
+## Policy-Based Authorization
+
+Prefer policies for meaningful capabilities.
+
+```csharp
 builder.Services.AddAuthorizationBuilder()
-    .AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"))
-    .AddPolicy("CanManageOrders", policy => policy
-        .RequireAuthenticatedUser()
-        .RequireClaim("permission", "orders:write"))
-    .AddPolicy("MinimumAge", policy => policy
-        .AddRequirements(new MinimumAgeRequirement(18)));
+    .AddPolicy(
+        "CanManageOrders",
+        policy => policy
+            .RequireAuthenticatedUser()
+            .RequireClaim("permission", "orders:write"));
+```
 
-// Custom requirement + handler
-public class MinimumAgeRequirement(int minimumAge) : IAuthorizationRequirement
+```csharp
+[Authorize(Policy = "CanManageOrders")]
+[HttpPost]
+public async Task<ActionResult<OrderResponse>> Create(...)
 {
-    public int MinimumAge => minimumAge;
-}
-
-public class MinimumAgeHandler(TimeProvider clock) : AuthorizationHandler<MinimumAgeRequirement>
-{
-    protected override Task HandleRequirementAsync(
-        AuthorizationHandlerContext context,
-        MinimumAgeRequirement requirement)
-    {
-        var dateOfBirthClaim = context.User.FindFirst("date_of_birth");
-        if (dateOfBirthClaim is not null &&
-            DateOnly.TryParse(dateOfBirthClaim.Value, out var dob) &&
-            dob.AddYears(requirement.MinimumAge) <= DateOnly.FromDateTime(clock.GetUtcNow().DateTime))
-        {
-            context.Succeed(requirement);
-        }
-        return Task.CompletedTask;
-    }
+    ...
 }
 ```
 
-### Protecting Endpoints
+Use stable constants for policy names when repeated throughout the application.
 
-```csharp
-// Protect an entire group
-app.MapGroup("/api/admin")
-    .WithTags("Admin")
-    .RequireAuthorization("AdminOnly")
-    .MapAdminEndpoints();
+## Roles
 
-// Protect individual endpoints
-group.MapPost("/", CreateOrder)
-    .RequireAuthorization("CanManageOrders");
+Roles are appropriate when the business authorization model is genuinely
+role-oriented.
 
-// Allow anonymous on a protected group
-group.MapGet("/public-info", GetPublicInfo)
-    .AllowAnonymous();
+Avoid scattering compound role strings everywhere.
+
+Prefer a policy when several roles or claims represent one business capability.
+
+## Resource-Based Authorization
+
+Some permissions depend on the actual resource.
+
+Examples:
+
+- user may edit only their own record;
+- project member may update only projects they belong to;
+- administrators may access any record.
+
+Use ASP.NET Core resource authorization or explicit Application authorization
+logic where appropriate.
+
+Do not rely only on Angular route guards or hidden buttons.
+
+Client-side checks are UX; server-side checks are security.
+
+## 401 vs 403
+
+Follow standard HTTP semantics:
+
+```text
+not authenticated / authentication failed
+→ 401 Unauthorized
+
+authenticated successfully
+but not permitted
+→ 403 Forbidden
 ```
 
-### OpenID Connect (External Identity Provider)
+Authentication/authorization middleware should normally generate these responses
+rather than controllers manually manufacturing them.
+
+A security-sensitive API may deliberately return `404` for some forbidden
+resource lookups to avoid disclosing existence. Make that a deliberate,
+consistent policy.
+
+Detailed HTTP status semantics belong to the `http-api` skill.
+
+## Current User
+
+Controllers may use `User` when information is purely HTTP/API-specific.
 
 ```csharp
-builder.Services.AddAuthentication(options =>
+[Authorize]
+[HttpGet("me")]
+public ActionResult<CurrentUserResponse> GetCurrentUser()
 {
-    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
-})
-.AddCookie()
-.AddOpenIdConnect(options =>
-{
-    options.Authority = builder.Configuration["Oidc:Authority"];
-    options.ClientId = builder.Configuration["Oidc:ClientId"];
-    options.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
-    options.ResponseType = "code";
-    options.SaveTokens = true;
-    options.Scope.Add("openid");
-    options.Scope.Add("profile");
-    options.Scope.Add("email");
-});
-```
+    var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-### Accessing Current User
-
-```csharp
-// In minimal API handlers — inject ClaimsPrincipal or HttpContext
-group.MapGet("/me", (ClaimsPrincipal user) =>
-{
-    var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
-    var email = user.FindFirstValue(ClaimTypes.Email);
-    return TypedResults.Ok(new { userId, email });
-}).RequireAuthorization();
-```
-
-## Anti-patterns
-
-### Don't Use Role Strings Everywhere
-
-```csharp
-// BAD — magic strings, hard to refactor, not testable
-[Authorize(Roles = "Admin,SuperAdmin,Manager")]
-public class AdminController { }
-
-// GOOD — policy-based
-builder.Services.AddAuthorizationBuilder()
-    .AddPolicy("AdminAccess", p => p.RequireRole("Admin", "SuperAdmin", "Manager"));
-
-group.MapGet("/", Handler).RequireAuthorization("AdminAccess");
-```
-
-### Don't Store Secrets in appsettings.json
-
-```json
-// BAD — committed to source control
-{
-  "Jwt": {
-    "Key": "super-secret-key-12345"
-  }
+    return Ok(new CurrentUserResponse(userId));
 }
 ```
 
-```bash
-# GOOD — use user secrets in development
-dotnet user-secrets set "Jwt:Key" "super-secret-key-12345"
-```
-
-### Don't Skip Token Validation
+When Application use cases repeatedly require caller identity, define a small
+Application abstraction such as:
 
 ```csharp
-// BAD — disabling validation
-options.TokenValidationParameters = new TokenValidationParameters
+public interface ICurrentUser
 {
-    ValidateIssuer = false,      // DON'T
-    ValidateAudience = false,    // DON'T
-    ValidateLifetime = false,    // DEFINITELY DON'T
-};
-
-// GOOD — validate everything (see JWT Bearer Authentication pattern above for full setup)
+    string? UserId { get; }
+    bool IsAuthenticated { get; }
+}
 ```
 
-## Decision Guide
+Implement the HTTP-specific adapter at an outer boundary.
 
-| Scenario | Recommendation |
-|----------|---------------|
-| REST API | JWT Bearer authentication |
-| Blazor Server / MVC | Cookie authentication |
-| External identity provider | OpenID Connect |
-| User registration / login | ASP.NET Identity |
-| Passwordless login | ASP.NET Identity passkeys (WebAuthn, built-in since .NET 10) |
-| Permission checking | Policy-based authorization |
-| Multi-tenant API | Claims-based with tenant claim |
-| API-to-API communication | Client credentials (OAuth 2.0) |
-| Simple API keys | Custom `AuthenticationHandler<T>` |
+Do not make Application services depend directly on `HttpContext`,
+`ClaimsPrincipal`, or `IHttpContextAccessor`.
+
+Do not create `ICurrentUser` if passing an explicit user identifier is simpler.
+
+## Cookie Authentication and CSRF
+
+When authentication credentials are sent automatically by the browser through
+cookies, consider CSRF protection as part of the design.
+
+Do not assume an Angular frontend makes cookie-based API authentication immune
+to CSRF.
+
+Bearer tokens explicitly sent through the `Authorization` header have different
+CSRF characteristics.
+
+## Token Storage
+
+Do not log access tokens or refresh tokens.
+
+Do not commit signing secrets.
+
+Client-side token storage strategy must be chosen according to the application's
+threat model.
+
+Do not state that one browser storage mechanism is universally secure.
+
+## Authentication Errors
+
+Do not expose detailed authentication failure information that helps an attacker
+distinguish secrets or account state unnecessarily.
+
+Login endpoints should avoid account-enumeration leaks where relevant.
+
+## Testing
+
+Test authorization behavior for important protected operations.
+
+Useful integration cases include:
+
+- unauthenticated request → `401`;
+- authenticated caller without permission → `403`;
+- permitted caller → expected success;
+- resource-specific ownership rules;
+- anonymous endpoint remains accessible when intended.
+
+Do not test only the presence of `[Authorize]`; verify actual observable behavior.
+
+## Anti-Patterns
+
+Avoid:
+
+- custom password hashing;
+- disabling token validation;
+- hardcoded signing keys;
+- authorization only in Angular;
+- Application depending on `HttpContext`;
+- using `401` for an authenticated-but-forbidden user;
+- using `403` for missing authentication;
+- logging tokens;
+- role/permission magic strings scattered throughout the codebase;
+- adding Identity, JWT issuance, or OIDC infrastructure without an actual need.

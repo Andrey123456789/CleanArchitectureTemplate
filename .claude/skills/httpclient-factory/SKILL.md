@@ -1,258 +1,259 @@
 ---
 name: httpclient-factory
 description: >
-  IHttpClientFactory and typed HTTP clients for .NET 10 applications. Covers
-  named/typed/keyed clients, DelegatingHandlers, resilience with
-  Microsoft.Extensions.Http.Resilience, and testing patterns.
-  Load this skill when configuring HTTP clients, adding retry/circuit breaker
-  policies, or when the user mentions "HttpClient", "IHttpClientFactory",
-  "AddHttpClient", "typed client", "named client", "DelegatingHandler",
-  "resilience", "retry", "circuit breaker", "hedging", "Polly",
-  "AddStandardResilienceHandler", "socket exhaustion", or "Refit".
+  Outbound HTTP client guidance for .NET using IHttpClientFactory. Covers named,
+  typed and keyed clients, Infrastructure adapters, configuration, timeouts,
+  DelegatingHandlers, cancellation, response mapping, resilience integration,
+  and testing. Use when implementing or reviewing calls to external HTTP APIs.
 ---
 
 # HttpClient Factory
 
 ## Core Principles
 
-1. **Never `new HttpClient()` per request** — Raw `HttpClient` creation causes socket exhaustion under load and ignores DNS changes. Use `IHttpClientFactory` to manage handler lifetimes.
-2. **Keyed clients over typed clients** — Keyed DI (`.AddAsKeyed()`) is the recommended pattern in .NET 10. Typed clients captured in singletons silently break handler rotation.
-3. **Resilience is not optional** — Every external HTTP call needs retry, circuit breaker, and timeout. `AddStandardResilienceHandler()` provides sensible defaults in one line.
-4. **DelegatingHandlers for cross-cutting concerns** — Auth tokens, correlation IDs, and logging belong in the handler pipeline, not scattered across service methods.
+1. Do not create and dispose a new `HttpClient` for every application request.
+2. Use `IHttpClientFactory` or an appropriately managed long-lived client.
+3. Named, typed, and keyed clients are all valid; choose the simplest model for
+   the consumer and lifetime.
+4. Outbound API clients normally belong in Infrastructure.
+5. Propagate `CancellationToken`.
+6. Configure finite time limits for external calls.
+7. Add retry/circuit-breaker behavior only when its semantics are appropriate.
+8. Do not leak `HttpResponseMessage` or HTTP-specific transport concerns into
+   Application contracts unless the Application explicitly models HTTP.
 
-## Patterns
+## Architectural Boundary
 
-### Named Client with Resilience
+Application may define an abstraction:
 
 ```csharp
-builder.Services.AddHttpClient("github", client =>
+public interface IPaymentGateway
 {
-    client.BaseAddress = new Uri("https://api.github.com/");
-    client.DefaultRequestHeaders.UserAgent.ParseAdd("MyApp/1.0");
-    client.DefaultRequestHeaders.Accept.Add(
-        new MediaTypeWithQualityHeaderValue("application/json"));
-})
-.AddStandardResilienceHandler();
-
-// Usage via factory
-public sealed class GitHubService(IHttpClientFactory factory)
-{
-    public async Task<Repo?> GetRepoAsync(string owner, string name, CancellationToken ct)
-    {
-        var client = factory.CreateClient("github");
-        return await client.GetFromJsonAsync<Repo>($"repos/{owner}/{name}", ct);
-    }
+    Task<PaymentResult> ChargeAsync(
+        PaymentRequest request,
+        CancellationToken cancellationToken);
 }
 ```
 
-### Keyed Client (Recommended in .NET 10)
-
-Combines named client configurability with direct injection. No string lookups.
+Infrastructure implements it with `HttpClient`.
 
 ```csharp
-builder.Services.AddHttpClient("payments", client =>
+internal sealed class PaymentGateway(HttpClient httpClient)
+    : IPaymentGateway
 {
-    client.BaseAddress = new Uri("https://api.payments.example.com/");
-})
-.AddStandardResilienceHandler()
-.AddAsKeyed();  // Register as keyed scoped service
+    ...
+}
+```
 
-// Inject directly — no IHttpClientFactory needed
-app.MapPost("/charge", async (
-    [FromKeyedServices("payments")] HttpClient httpClient,
-    ChargeRequest request,
-    CancellationToken ct) =>
+Application does not need to know the external service uses HTTP.
+
+## Typed Clients
+
+Typed clients are useful when one class owns communication with one remote API.
+
+```csharp
+services.AddHttpClient<PaymentGateway>(client =>
 {
-    var response = await httpClient.PostAsJsonAsync("charges", request, ct);
-    return response.IsSuccessStatusCode
-        ? TypedResults.Ok()
-        : TypedResults.Problem("Payment failed");
+    client.BaseAddress = new Uri(configuration["Payments:BaseUrl"]!);
 });
 ```
 
-Global opt-in: `builder.Services.ConfigureHttpClientDefaults(b => b.AddAsKeyed());`
+Do not capture a transient typed client inside a singleton without understanding
+its lifetime implications.
 
-### Standard Resilience Handler
+## Named Clients
 
-`AddStandardResilienceHandler()` chains 5 strategies:
+Named clients are useful when:
 
-| Strategy | Default |
-|----------|---------|
-| Rate limiter | 1000 concurrent requests |
-| Total timeout | 30 seconds |
-| Retry | 3 retries, exponential backoff with jitter |
-| Circuit breaker | Opens at 10% failure rate |
-| Attempt timeout | 10 seconds per attempt |
+- a factory creates clients dynamically;
+- several clients share one usage model;
+- a singleton needs to create clients per operation.
 
 ```csharp
-builder.Services.AddHttpClient("api")
-    .AddStandardResilienceHandler(options =>
-    {
-        options.Retry.MaxRetryAttempts = 5;
-        options.Retry.Delay = TimeSpan.FromSeconds(1);
-        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
-        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(15);
-
-        // Disable retries for non-idempotent methods
-        options.Retry.DisableForUnsafeHttpMethods();
-    });
+services.AddHttpClient("catalog", client =>
+{
+    client.BaseAddress = new Uri(configuration["Catalog:BaseUrl"]!);
+});
 ```
 
-### DelegatingHandler for Auth Token Injection
+## Keyed Clients
+
+Keyed clients are useful when keyed DI makes consumption clearer.
+
+Do not choose keyed clients automatically simply because the framework supports
+them.
+
+Prefer whichever model makes ownership and lifetime easiest to understand.
+
+## Delegating Handlers
+
+Use `DelegatingHandler` for genuine HTTP pipeline concerns such as:
+
+- authorization header acquisition;
+- correlation/context propagation;
+- specialized request signing.
+
+Do not hide business decisions inside handlers.
 
 ```csharp
-public sealed class AuthenticationHandler(ITokenService tokenService)
+internal sealed class AccessTokenHandler(
+    IAccessTokenProvider tokens)
     : DelegatingHandler
 {
     protected override async Task<HttpResponseMessage> SendAsync(
-        HttpRequestMessage request, CancellationToken cancellationToken)
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
     {
-        var token = await tokenService.GetAccessTokenAsync(cancellationToken);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var token = await tokens.GetAsync(cancellationToken);
+
+        request.Headers.Authorization =
+            new AuthenticationHeaderValue("Bearer", token);
+
         return await base.SendAsync(request, cancellationToken);
     }
 }
-
-// Registration
-builder.Services.AddTransient<AuthenticationHandler>();
-builder.Services.AddHttpClient("api")
-    .AddHttpMessageHandler<AuthenticationHandler>()
-    .AddStandardResilienceHandler();
 ```
 
-### DelegatingHandler for Correlation ID Propagation
+## Cancellation
+
+Always propagate meaningful cancellation to outbound HTTP calls.
 
 ```csharp
-public sealed class CorrelationIdHandler(IHttpContextAccessor httpContextAccessor)
-    : DelegatingHandler
+await httpClient.SendAsync(
+    request,
+    cancellationToken);
+```
+
+Do not replace request cancellation with arbitrary `CancellationToken.None`
+unless the operation intentionally must outlive the incoming request.
+
+## Timeouts
+
+External calls require a bounded execution time.
+
+Choose timeouts according to the remote operation and the application's latency
+budget.
+
+When using resilience pipelines, understand the difference between:
+
+- per-attempt timeout;
+- total-operation timeout.
+
+Avoid overlapping timeout mechanisms whose combined behavior is unclear.
+
+## Response Mapping
+
+Infrastructure should translate remote HTTP responses into the abstraction
+consumed by Application.
+
+Do not blindly use `EnsureSuccessStatusCode()` when specific remote statuses
+have meaningful contract semantics.
+
+Example:
+
+```csharp
+if (response.StatusCode == HttpStatusCode.NotFound)
 {
-    protected override Task<HttpResponseMessage> SendAsync(
-        HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        if (httpContextAccessor.HttpContext?.Request.Headers
-                .TryGetValue("X-Correlation-Id", out var correlationId) is true)
-        {
-            request.Headers.Add("X-Correlation-Id", correlationId.ToString());
-        }
-        return base.SendAsync(request, cancellationToken);
-    }
-}
-```
-
-### SocketsHttpHandler Configuration
-
-```csharp
-builder.Services.AddHttpClient("advanced")
-    .UseSocketsHttpHandler((handler, _) =>
-    {
-        handler.PooledConnectionLifetime = TimeSpan.FromMinutes(2);
-        handler.PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1);
-        handler.MaxConnectionsPerServer = 100;
-        handler.AutomaticDecompression =
-            DecompressionMethods.GZip | DecompressionMethods.Brotli;
-    });
-```
-
-### Testing with Mock Handler
-
-```csharp
-public sealed class MockHttpHandler(
-    HttpStatusCode statusCode,
-    string content) : HttpMessageHandler
-{
-    protected override Task<HttpResponseMessage> SendAsync(
-        HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        return Task.FromResult(new HttpResponseMessage(statusCode)
-        {
-            Content = new StringContent(content, Encoding.UTF8, "application/json")
-        });
-    }
+    return null;
 }
 
-// In test
-var handler = new MockHttpHandler(HttpStatusCode.OK, """{"id":1}""");
-var client = new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") };
-var service = new MyService(client);
+response.EnsureSuccessStatusCode();
 ```
 
-## Anti-patterns
+For richer failure semantics, translate responses into explicit Infrastructure /
+Application outcomes.
 
-### Don't Create HttpClient Per Request
+Do not simply expose every upstream status code to your own API.
+
+## 429 and Retry-After
+
+When a remote service returns `429 Too Many Requests`, respect `Retry-After`
+when the selected retry policy supports it.
+
+Do not retry indefinitely.
+
+The outbound client's retry behavior and the inbound HTTP response your own API
+returns are separate decisions.
+
+## Resilience
+
+Use the `resilience` skill when configuring retries, circuit breakers, hedging,
+fallback, or resilience pipelines.
+
+A timeout is normally required for external I/O.
+
+Retry and circuit breaker are not mandatory for every external call.
+
+Before enabling retry, determine:
+
+- whether the failure is transient;
+- whether the operation is safe to repeat;
+- whether the remote API supports idempotency;
+- whether retry may duplicate side effects.
+
+## Unsafe HTTP Methods
+
+POST/PATCH and other state-changing operations must not be retried automatically
+unless their semantics make retry safe.
+
+Possible mechanisms include:
+
+- API-defined idempotency keys;
+- naturally idempotent operation semantics;
+- explicit deduplication.
+
+Do not assume every PUT or DELETE implementation is operationally safe merely
+because the HTTP method is defined as idempotent.
+
+## Headers
+
+Stable headers such as media types may be configured on the client.
+
+Per-request values such as dynamic access tokens should normally be applied to
+the specific request or through an appropriate handler.
+
+Do not mutate shared default headers concurrently for request-specific values.
+
+## Serialization
+
+Prefer `System.Net.Http.Json` / `System.Text.Json` where sufficient.
+
+Use explicit serialization options when the external API contract differs from
+the application's defaults.
+
+Do not reuse internal Domain entities as remote API contracts merely to avoid
+mapping.
+
+## Testing
+
+For an outbound adapter, a controlled `HttpMessageHandler` can verify:
+
+- request method/path;
+- headers;
+- serialized payload;
+- response mapping;
+- cancellation/failure behavior.
 
 ```csharp
-// BAD — socket exhaustion under load, ignores DNS changes
-public async Task<string> GetDataAsync()
+var client = new HttpClient(testHandler)
 {
-    using var client = new HttpClient();
-    return await client.GetStringAsync("https://api.example.com/data");
-}
-
-// GOOD — factory-managed
-public async Task<string> GetDataAsync(CancellationToken ct)
-{
-    var client = factory.CreateClient("api");
-    return await client.GetStringAsync("https://api.example.com/data", ct);
-}
+    BaseAddress = new Uri("https://example.test/")
+};
 ```
 
-### Don't Capture Typed Clients in Singletons
+Using `new HttpClient(testHandler)` in a focused test is fine; the prohibition on
+per-request construction concerns production lifetime management.
 
-```csharp
-// BAD — transient HttpClient captured by singleton defeats handler rotation
-services.AddSingleton<MySingletonService>();
-services.AddHttpClient<MySingletonService>();
+## Anti-Patterns
 
-// GOOD — use keyed client or IHttpClientFactory in singletons
-services.AddSingleton<MySingletonService>();
-services.AddHttpClient("myservice").AddAsKeyed(ServiceLifetime.Singleton);
-```
+Avoid:
 
-### Don't Mutate DefaultRequestHeaders on Shared Clients
-
-```csharp
-// BAD — not thread-safe
-httpClient.DefaultRequestHeaders.Authorization =
-    new AuthenticationHeaderValue("Bearer", token);
-
-// GOOD — use DelegatingHandler or per-request HttpRequestMessage
-using var request = new HttpRequestMessage(HttpMethod.Get, "/api/data");
-request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-await httpClient.SendAsync(request, ct);
-```
-
-### Don't Forget CancellationToken
-
-```csharp
-// BAD — no cancellation support
-var result = await httpClient.GetFromJsonAsync<Order>("/orders/1");
-
-// GOOD — always pass CancellationToken
-var result = await httpClient.GetFromJsonAsync<Order>("/orders/1", cancellationToken);
-```
-
-### Don't Stack Multiple Resilience Handlers
-
-```csharp
-// BAD — conflicting resilience strategies
-builder.AddStandardResilienceHandler();
-builder.AddStandardHedgingHandler();
-
-// GOOD — one standard handler, or a custom pipeline
-builder.AddStandardResilienceHandler();
-```
-
-## Decision Guide
-
-| Scenario | Recommendation |
-|----------|---------------|
-| New .NET 10 project | Keyed clients with `AddAsKeyed()` |
-| Singleton service needs HttpClient | Named client via `IHttpClientFactory` or keyed singleton |
-| External API calls | `AddStandardResilienceHandler()` on every client |
-| Auth token injection | `DelegatingHandler` registered with `AddHttpMessageHandler` |
-| Hedging (parallel requests) | `AddStandardHedgingHandler()` for latency-sensitive calls |
-| Non-idempotent methods | `DisableForUnsafeHttpMethods()` on retry options |
-| Custom retry logic | `AddResilienceHandler("name", builder => ...)` |
-| Connection pooling control | `UseSocketsHttpHandler` with `PooledConnectionLifetime` |
-| API client generation | Refit with `AddRefitClient<T>()` |
-| Integration testing | Custom `HttpMessageHandler` or `MockHttpMessageHandler` |
+- creating/disposing `HttpClient` for every request;
+- making typed/keyed/named clients mandatory universally;
+- retries on unsafe operations without idempotency analysis;
+- infinite or poorly bounded retries;
+- leaking `HttpResponseMessage` across architectural boundaries;
+- ignoring cancellation;
+- dynamic auth tokens in shared `DefaultRequestHeaders`;
+- mapping every upstream failure mechanically to the same status in your own API;
+- adding resilience pipelines without understanding their behavior.

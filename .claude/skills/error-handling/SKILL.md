@@ -331,19 +331,12 @@ Do not make arbitrary string arrays the application's error type.
 
 HTTP status codes belong to the API layer.
 
-Typical mappings include:
+Use the `http-api` skill as the canonical guidance for HTTP response semantics,
+including success responses, validation, authentication/authorization,
+conflicts, preconditions, rate limiting, and upstream failures.
 
-| Application outcome | HTTP response |
-|---|---|
-| Success | `200`, `201`, or `204` as appropriate |
-| Invalid HTTP/request input | `400` |
-| Unauthenticated | `401` |
-| Authenticated but forbidden | `403` |
-| Resource not found | `404` |
-| Known conflict | `409` |
-| Unexpected server failure | `500` |
-
-The actual mapping should reflect the API contract and use case semantics.
+This skill owns exception and failure handling. It should not duplicate the full
+HTTP status-code policy.
 
 ## Anti-Patterns
 

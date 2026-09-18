@@ -15,10 +15,16 @@ description: >
 
 ## Core Principles
 
-1. **Two-stage initialization** — Create a bootstrap logger for startup, then replace it with the full logger after DI is ready. This captures startup errors that would otherwise be lost.
+1. **Use two-stage initialization when startup logging matters** — A bootstrap
+   logger can capture failures before the full DI/configuration pipeline is
+   available. Simpler applications may use normal host-managed Serilog setup
+   without introducing bootstrap logging unnecessarily.
 2. **`AddSerilog()` over `UseSerilog()`** — Use `builder.Services.AddSerilog()` (the modern API) instead of `builder.Host.UseSerilog()`. It integrates with DI services via `ReadFrom.Services(services)`.
 3. **Message templates, not interpolation** — `{PropertyName}` syntax creates structured data that can be queried. String interpolation (`$"..."`) breaks structure and allocates even when the log level is disabled.
 4. **Configure via appsettings.json** — Keep log levels, sinks, and overrides in configuration so they can change per environment without redeployment.
+5. **Application code uses ILogger<T>** — Keep direct Serilog APIs such as
+   `Log.Logger` and `LogContext` at composition/provider-specific boundaries when
+   possible. General application logging should follow the `logging` skill.
 
 ## Patterns
 
@@ -232,7 +238,13 @@ logger.LogInformation($"Order {orderId} created for {customerId}");
 logger.LogInformation("Order {OrderId} created for {CustomerId}", orderId, customerId);
 ```
 
-### Don't Skip CloseAndFlush
+### Flush Bootstrap/Static Serilog on Shutdown
+
+When the application uses Serilog's static/bootstrap `Log.Logger`, flush it on
+shutdown so buffered events can be written.
+
+For purely host-managed logging, follow the lifetime behavior of the configured
+provider rather than adding static Serilog lifecycle code unnecessarily.
 
 ```csharp
 // BAD — async sinks (Seq, OTLP, Elasticsearch) lose buffered events
@@ -250,8 +262,10 @@ finally { await Log.CloseAndFlushAsync(); }
 // BAD — passwords and tokens in logs
 logger.LogInformation("Login: {Email} with password {Password}", email, password);
 
-// GOOD — never log secrets, passwords, tokens, or PII
-logger.LogInformation("Login: {Email}", email);
+// GOOD — prefer a non-sensitive technical identifier
+logger.LogInformation(
+    "Login completed for user {UserId}",
+    userId);
 ```
 
 ### Don't Destructure Without Limits
@@ -287,7 +301,8 @@ logger.LogInformation("Request: {@Request}", httpContext.Request);
 
 | Scenario | Recommendation |
 |----------|---------------|
-| Application logging | Serilog with `AddSerilog()` and appsettings.json |
+| Project chooses Serilog as provider | `AddSerilog()` + configuration |
+| General application logging API | `ILogger<T>`; follow `logging` skill |
 | Log storage (development) | Seq (free single-user) or Aspire Dashboard |
 | Log storage (production) | Seq, Elasticsearch (Elastic sink), or OTLP backend |
 | Request logging | `UseSerilogRequestLogging()` (replaces per-request noise) |
