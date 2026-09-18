@@ -1,121 +1,341 @@
 ---
 name: security-scan
 description: >
-  Deep security scanning for .NET applications across 6 layers: vulnerable packages,
-  secrets detection, OWASP code patterns, auth configuration, CORS policy, and
-  data protection. Produces severity-rated findings with specific remediation steps.
-  Load this skill when: "security scan", "security audit", "check for vulnerabilities",
-  "find secrets", "OWASP", "auth review", "CORS check", "security review",
-  "penetration test prep", "CVE check", "vulnerability scan", "hardcoded password",
-  "data protection", "security posture".
+  Structured static security review for .NET and Angular applications.
+  Covers vulnerable dependencies, secrets and configuration, injection and
+  dangerous code patterns, authentication and authorization, browser/API
+  security, sensitive-data exposure and logging, and exceptional-condition
+  handling. Maps findings to OWASP Top 10:2025 where appropriate.
+  Use when asked for a security scan, security audit, vulnerability review,
+  OWASP review, secret scan, auth review, CORS review, pre-release security
+  check, or penetration-test preparation.
 ---
 
-# /security-scan — 6-Layer Security Pipeline
+# Security Scan
 
-## What
+## Purpose
 
-Runs a defense-in-depth static scan across 6 layers. A project with zero CVEs
-can still have hardcoded secrets, SQL injection, and missing auth — each layer
-catches a different vulnerability class. Findings map to the **OWASP Top
-10:2025** taxonomy and are rated Critical/High/Medium/Low by exploitability,
-impact, and exposure — a Critical SQL injection on a public endpoint outranks a
-Low info-disclosure on an admin page.
+Perform an evidence-based static security review of the repository.
 
-Detection patterns, OWASP mappings, remediation code, and the report template
-live in `references/scan-layers.md` — read it before executing.
+This is not a penetration test.
 
-**Honesty rule:** this is static analysis, not a penetration test. It catches
-known patterns but misses business-logic flaws, complex authorization bypasses,
-and runtime-only vulnerabilities. Every report states this.
+Static review can identify many code, dependency, configuration, and access-control
+problems, but it cannot prove that the application is secure and may not detect:
 
-## When
+- runtime-only vulnerabilities;
+- infrastructure configuration outside the repository;
+- complex business-logic abuse;
+- sophisticated authorization bypasses;
+- deployment-specific weaknesses;
+- vulnerabilities requiring dynamic exploitation.
 
-- Pre-release security gate — full scan, non-negotiable before production
-- "Security scan", "security audit", "find secrets", "CVE check", "OWASP"
-- After a dependency update (Layer 1), auth changes (Layer 4), config changes
-  (Layer 2), or logging changes (Layer 6)
-- Pre-pentest preparation — fix static issues before paying for a pentest
-- Incident response and quarterly reviews
+Report that limitation explicitly.
 
-## How
+## Principles
 
-### Step 1: Choose Layers
+1. Report concrete security risks, not generic security advice.
+2. Evaluate findings in the context of actual exposure and application behavior.
+3. Distinguish confirmed findings from issues that require verification.
+4. Do not inflate severity merely because a suspicious pattern exists.
+5. Do not suppress a real secret merely because it appears in a Development file.
+6. Do not require security mechanisms that the project does not need.
+7. Evaluate effective authorization behavior, including global/fallback policies.
+8. Use existing project security, authentication, configuration, logging,
+   error-handling, HTTP, and resilience guidance.
+9. Do not require a specific MCP server, agent, analyzer, or commercial scanner.
 
-| Scenario | Layers |
-|----------|--------|
-| Pre-release gate / pentest prep / incident / quarterly | All 6 |
-| After dependency update | 1 |
-| New endpoint added | 3, 4, 5 |
-| Auth system changes | 4 |
-| Config file changes | 2 |
-| Logging changes | 6 |
-| Public API exposure | 3, 4, 5 |
-| Internal-only service | 1, 2, 3 |
+## OWASP Mapping
 
-### Step 2: Execute the Layers
+Use OWASP Top 10:2025 as an awareness taxonomy when it genuinely fits the
+finding:
 
-Read `references/scan-layers.md` for the detection patterns per layer.
-Delegate deep auth and secrets review to the `security-auditor` agent, pairing
-the `authentication` and `configuration` skills.
-
-| # | Layer | OWASP 2025 | Method |
-|---|-------|-----------|--------|
-| 1 | Package vulnerabilities | A03 Supply Chain | `dotnet list package --vulnerable --include-transitive` |
-| 2 | Secrets detection | — | Pattern scan over .cs/.json/.yml/.xml/.config |
-| 3 | OWASP code patterns | A05 Injection, A08 Integrity, A04 Crypto, A01 Access Control | Source scan: raw SQL, `Html.Raw`, `BinaryFormatter`, MD5/SHA1, IDOR |
-| 4 | Auth configuration | A07 Authentication, A01 Access Control | `get_endpoint_map` — every route's auth posture in one call; flag `unmarked` endpoints; then JWT validation settings |
-| 5 | CORS policy | A02 Misconfiguration | Wildcard origins, credentials combos, method/header breadth |
-| 6 | Data protection | A04 Crypto, A09 Logging & Alerting | PII in logs, over-broad responses, plaintext sensitive storage |
-
-### Step 3: Rate with Context
-
-Severity must match actual risk — over-classification causes alert fatigue and
-buries the real Critical:
-
-- Test-fixture "secrets" and appsettings.Development.json values are expected —
-  skip or mark INFO, don't flag as HIGH
-- A missing XML comment is never a security finding
-- Reserve Critical for exploitable-now issues: injection on public endpoints,
-  exposed production secrets, auth bypass
-
-### Step 4: Report
-
-Every finding: `[SEVERITY] file:line — title`, OWASP category, what's wrong,
-impact if exploited, and remediation code (before/after). Produce the summary
-table + per-layer status table from the reference template, prefixed with the
-static-analysis disclaimer.
-
-## Example
-
+```text
+A01 Broken Access Control
+A02 Security Misconfiguration
+A03 Software Supply Chain Failures
+A04 Cryptographic Failures
+A05 Injection
+A06 Insecure Design
+A07 Authentication Failures
+A08 Software or Data Integrity Failures
+A09 Security Logging & Alerting Failures
+A10 Mishandling of Exceptional Conditions
 ```
-User: /security-scan before we ship
 
-Claude: Running all 6 layers...
+Not every issue needs an OWASP category.
+
+Do not force an inaccurate mapping merely to populate the report.
+
+## Scan Scope
+
+Before scanning, inspect the repository and determine which surfaces exist:
+
+```text
+.NET backend
+Angular frontend
+authentication/authorization
+database access
+external HTTP integrations
+file upload/download
+Docker/container configuration
+CI/CD
+production configuration
+logging
+caching
+background processing
+```
+
+Skip irrelevant checks rather than reporting them as failures.
+
+## Security Layers
+
+Use the detailed procedures in:
+
+```text
+references/scan-layers.md
+```
+
+The scan is organized into seven layers:
+
+| # | Layer | Typical OWASP mapping |
+|---|---|---|
+| 1 | Dependencies and supply chain | A03 |
+| 2 | Secrets and configuration | A02, A04 |
+| 3 | Injection and dangerous code patterns | A04, A05, A08 |
+| 4 | Authentication and access control | A01, A07 |
+| 5 | Browser and HTTP/API security | A01, A02 |
+| 6 | Sensitive data, logging, and error exposure | A04, A09 |
+| 7 | Exceptional conditions and failure handling | A06, A10 |
+
+## Selecting Scope
+
+For a full pre-release or explicitly requested security audit, review all
+applicable layers.
+
+For targeted changes, focus first on the affected layers but expand the review
+when the change crosses security boundaries.
+
+Examples:
+
+| Change | Priority areas |
+|---|---|
+| Dependency update | Dependencies / supply chain |
+| Authentication change | Authentication / access control |
+| New Controller endpoint | Access control, input handling, HTTP security |
+| Database/query change | Injection, access control, sensitive data |
+| Configuration change | Secrets / configuration |
+| Logging change | Sensitive data / logging |
+| HttpClient integration | Configuration, SSRF/input handling, failure handling |
+| File upload | Input handling, path safety, resource limits |
+| Angular auth/UI change | Browser security + server authorization assumptions |
+
+## Tooling
+
+Use available repository search, compiler/tooling output, package-audit commands,
+and static analyzers when available.
+
+Tool output is evidence, not authority.
+
+Do not require an MCP tool or external scanner for the skill to work.
+
+When an automated scanner reports a possible issue:
+
+1. inspect the actual code;
+2. determine whether the pattern is reachable and relevant;
+3. report it only with appropriate confidence.
+
+## Severity
+
+Rate severity from actual risk.
+
+Consider:
+
+```text
+exploitability
+external exposure
+required privileges
+affected data or capability
+blast radius
+whether exploitation is reliable
+existing compensating controls
+```
+
+### Critical
+
+Use sparingly for immediately exploitable, high-impact conditions such as:
+
+- exposed real production credentials;
+- reachable authentication bypass;
+- straightforward remote code execution;
+- exploitable injection with major data/system impact.
+
+### High
+
+A serious vulnerability that is realistically exploitable or can substantially
+compromise data, authorization, or system behavior.
+
+### Medium
+
+A meaningful weakness requiring realistic conditions, limited access, or
+additional exploitation steps.
+
+### Low
+
+A genuine but limited security weakness with low practical impact.
+
+### Info
+
+Useful security observation or hardening opportunity that is not itself a
+demonstrated vulnerability.
+
+Do not convert advisory CVSS scores directly into application finding severity
+without considering whether the affected dependency/code path is relevant.
+
+## False Positives and Context
+
+Do not automatically report these as vulnerabilities:
+
+- endpoint without `[Authorize]` when a secure fallback/global policy protects it;
+- bare `[Authorize]` when authentication alone is actually the intended policy;
+- `AllowAnyOrigin()` for a genuinely public non-credentialed API;
+- MD5/SHA1 used for a non-security checksum;
+- data not encrypted at application level when platform/storage encryption
+  adequately satisfies the requirement;
+- obviously fake test credentials;
+- framework defaults that are secure in the actual hosting configuration.
+
+Conversely, do not automatically treat these as safe:
+
+- secrets in `appsettings.Development.json`;
+- sensitive values logged only at Debug level;
+- client-side Angular route guards;
+- hidden UI buttons;
+- CORS configuration as a substitute for authorization.
+
+## Cross-Skill Guidance
+
+Use these skills/rules when deeper guidance is needed:
+
+```text
+security.md
+authentication
+configuration
+logging
+error-handling
+http-api
+httpclient-factory
+resilience
+ef-core
+angular
+```
+
+Do not duplicate their entire implementation guidance inside the security scan.
+
+## Reporting
+
+Every confirmed finding should include:
+
+```text
+severity
+file and location
+title
+evidence
+why it is a security risk
+likely impact
+smallest reasonable remediation
+OWASP category when applicable
+```
+
+If the finding is uncertain, label it clearly:
+
+```text
+NEEDS VERIFICATION
+```
+
+rather than presenting it as confirmed.
+
+## Report Shape
+
+```markdown
+# Security Scan Report
+
+Scope:
+- ...
+
+Limitations:
+Static analysis only. This does not replace penetration testing,
+dynamic testing, threat modeling, or infrastructure review.
+
+## Summary
+
+| Severity | Count |
+|---|---:|
+| Critical | 0 |
+| High | 0 |
+| Medium | 0 |
+| Low | 0 |
+| Info | 0 |
+
+## Findings
+
+### [HIGH] File:Line — Finding title
+
+OWASP: A01:2025 Broken Access Control
+
+Evidence:
+...
+
+Impact:
+...
+
+Remediation:
+...
+
+## Layer Results
 
 | Layer | Status | Findings |
-|-------|--------|----------|
-| 1. Packages | PASS | 0 CVEs (142 packages incl. transitive) |
-| 2. Secrets | PASS | 0 real secrets (2 dev-only values skipped) |
-| 3. OWASP Patterns | FAIL | 1 SQL injection |
-| 4. Auth Config | WARN | 2 endpoints missing explicit auth attributes |
-| 5. CORS | PASS | Explicit origins from configuration |
-| 6. Data Protection | WARN | Customer email logged at Information level |
-
-[HIGH] SearchOrders.cs:34 — SQL Injection (A05:2025)
-  FromSqlRaw($"...LIKE '%{search}%'") → attacker controls the query.
-  Fix: db.Orders.Where(o => EF.Functions.Like(o.Name, $"%{search}%"))
-
-[MEDIUM] OrderEndpoints.cs:18,31 — no [Authorize]/[AllowAnonymous]; behavior
-  depends on ambient global policy. Make intent explicit per endpoint.
-
-[LOW] OrderPlacedHandler.cs:22 — PII in logs (A09:2025). Log CustomerId, not email.
-
-Note: static analysis only — this does not replace a penetration test.
+|---|---|---:|
+| Dependencies and supply chain | PASS | 0 |
+| Secrets and configuration | PASS | 0 |
+| Injection and dangerous patterns | PASS | 0 |
+| Authentication and access control | PASS | 0 |
+| Browser and HTTP/API security | PASS | 0 |
+| Sensitive data/logging/error exposure | PASS | 0 |
+| Exceptional conditions | PASS | 0 |
 ```
 
-## Related
+Use:
 
-- `references/scan-layers.md` — detection patterns, OWASP 2025 mappings, report template
-- `/verify` — Phase 5 runs a lightweight version of this scan per change set
-- `/health-check` — Dimension 7 (Security Posture) is the spot-check version
-- `authentication` / `configuration` — remediation patterns for Layers 4 and 2
+```text
+PASS
+FINDINGS
+NOT APPLICABLE
+NOT CHECKED
+```
+
+rather than pretending an uninspected layer passed.
+
+## Remediation Discipline
+
+Prefer the smallest secure change consistent with project architecture.
+
+Do not recommend:
+
+- introducing a new authentication system unnecessarily;
+- custom cryptography;
+- blanket encryption of all database fields;
+- `[Authorize]` on every action when a global policy already provides the same
+  protection;
+- security libraries merely to satisfy the scan;
+- disabling functionality solely because a static scanner cannot understand it.
+
+## Completion
+
+A security scan is complete when:
+
+- all applicable layers were inspected;
+- findings have evidence;
+- uncertain findings are identified as such;
+- severity reflects actual risk;
+- relevant limitations are stated;
+- no layer is marked PASS without being checked.

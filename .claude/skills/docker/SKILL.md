@@ -57,6 +57,12 @@ EXPOSE 8080
 ENTRYPOINT ["dotnet", "MyApp.Api.dll"]
 ```
 
+The example assumes these repository-level build files exist.
+
+Copy only repository-level build files that are actually present and required by
+restore. Do not add `Directory.Build.props` or `Directory.Packages.props` merely
+to satisfy the Dockerfile example.
+
 Explicitly copy project files required for restore.
 
 Do not use fragile wildcard tricks that flatten or accidentally rearrange

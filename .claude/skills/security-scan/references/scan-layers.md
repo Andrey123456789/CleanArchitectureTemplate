@@ -1,225 +1,711 @@
 # Security Scan — Layer Reference
 
-Loaded by `/security-scan` during execution. Detection patterns, OWASP Top
-10:2025 mappings, and remediation examples per layer.
+Detailed checks used by the `security-scan` skill.
 
-## Layer 1: Package Vulnerabilities — A03:2025 Software Supply Chain Failures
+Use these as investigation prompts, not as automatic vulnerability declarations.
+
+# Layer 1: Dependencies and Supply Chain
+
+OWASP:
+
+```text
+A03:2025 Software Supply Chain Failures
+```
+
+## .NET
+
+When supported by the installed SDK:
 
 ```bash
-dotnet list package --vulnerable --include-transitive
+dotnet package list --vulnerable --include-transitive
 ```
 
-Severity mapping:
+Review:
 
-| Severity | CVSS | Typical impact |
-|----------|------|----------------|
-| Critical | 9.0-10.0 | Remote code execution, authentication bypass |
-| High | 7.0-8.9 | Privilege escalation, data exposure |
-| Medium | 4.0-6.9 | Denial of service, information disclosure |
-| Low | 0.1-3.9 | Minor information leakage |
+- vulnerable direct dependencies;
+- vulnerable transitive dependencies;
+- severity/advisory information;
+- whether the vulnerable component is actually used in the affected application;
+- whether a patched compatible version exists;
+- unexpected or untrusted NuGet sources.
 
-Remediation: bump to the patched version. If no patch exists, document the risk
-and apply compensating controls.
+Do not automatically upgrade a package during a scan unless asked.
 
-## Layer 2: Secrets Detection
+Do not rate the application finding solely from CVSS. Consider reachability and
+exposure.
 
-Scan `.cs`, `.json`, `.yml`, `.yaml`, `.xml`, `.config` files.
+## Angular / npm
 
+When an npm frontend exists, inspect:
+
+```bash
+npm audit
 ```
-HIGH-CONFIDENCE PATTERNS (almost always a real secret):
-- "Password=" / "Pwd=" in connection strings outside appsettings.Development.json
-- "Bearer " followed by a base64 token in source code
-- "-----BEGIN PRIVATE KEY-----" / "-----BEGIN RSA PRIVATE KEY-----"
-- AWS: "AKIA" + 16 alphanumeric characters
-- Azure Storage/Service Bus key patterns
 
-MEDIUM-CONFIDENCE (need context):
-- "ApiKey"/"Secret"/"Token" variables with string literal assignments
-- Base64 strings > 40 chars in source
-- Connection strings with server addresses in non-Development config
+Distinguish:
 
-FALSE-POSITIVE INDICATORS (skip):
-- appsettings.Development.json values (dev-only)
-- Placeholders: "your-key-here", "changeme", "TODO", empty strings
-- Test fixtures with obviously fake values
-- "UserSecretsId" in .csproj (that's the fix, not the problem)
+- production dependency;
+- development/build dependency;
+- directly used package;
+- transitive package.
+
+A development-only vulnerability can still matter to the software supply chain,
+but its runtime impact differs from a browser-shipped dependency.
+
+Review lockfiles when package integrity or unexpected dependency changes are
+relevant.
+
+# Layer 2: Secrets and Configuration
+
+OWASP:
+
+```text
+A02:2025 Security Misconfiguration
+A04:2025 Cryptographic Failures
 ```
+
+Search source-controlled files for real credentials and secret material.
+
+Relevant file types include:
+
+```text
+.cs
+.ts
+.json
+.yml
+.yaml
+.xml
+.config
+.env*
+Dockerfile
+Compose files
+CI workflow files
+scripts
+```
+
+Potential high-confidence indicators:
+
+```text
+private keys
+real access/refresh tokens
+cloud access keys
+database passwords
+API secrets
+service-account credentials
+production connection strings containing credentials
+```
+
+Potential indicators requiring context:
+
+```text
+ApiKey = "..."
+Secret = "..."
+Token = "..."
+Password = "..."
+long opaque strings
+connection strings
+certificate material
+```
+
+Do not automatically ignore `appsettings.Development.json`.
+
+A real committed secret remains a secret regardless of the filename.
+
+Obviously fake values such as:
+
+```text
+changeme
+example-only
+test-password
+not-a-real-key
+```
+
+may be ignored or reported as Info when context makes their non-sensitive nature
+clear.
+
+`UserSecretsId` itself is not a secret.
+
+Preferred pattern:
 
 ```csharp
-// BAD — hardcoded connection string
-var connectionString = "Server=prod-db;Database=Orders;User=admin;Password=S3cret!";
-
-// GOOD — configuration; secrets live in user-secrets (dev) or Key Vault/env (prod)
-var connectionString = builder.Configuration.GetConnectionString("OrdersDb");
+var connectionString =
+    builder.Configuration.GetConnectionString("Default");
 ```
 
-## Layer 3: OWASP Code Patterns
+with the real secret supplied through the project's chosen local/deployment
+secret mechanism.
 
-Mapped to the OWASP Top 10:2025 taxonomy.
+Also review:
 
-```
-A05:2025 — Injection (SQL)
-  Detect: string concatenation in SQL, raw SQL with user input
-  Pattern: FromSqlRaw($"SELECT * FROM Orders WHERE Id = '{userInput}'")
-  Fix: FromSqlInterpolated($"... WHERE Id = {userInput}") — parameterized —
-       or LINQ / EF.Functions.Like
+- production debug/development flags;
+- certificate-validation bypass;
+- insecure URLs carrying credentials;
+- overly verbose production error configuration;
+- accidentally committed `.env` files.
 
-A05:2025 — Injection (XSS)
-  Detect: raw HTML output without encoding in Razor/Blazor
-  Pattern: @Html.Raw(userInput)
-  Fix: Razor's default encoding (@userInput) or explicit sanitization
+# Layer 3: Injection and Dangerous Code Patterns
 
-A08:2025 — Software or Data Integrity Failures (insecure deserialization)
-  Detect: BinaryFormatter, JsonConvert with TypeNameHandling.All
-  Fix: System.Text.Json (no type-name handling by default);
-       if Newtonsoft required: TypeNameHandling.None + explicit converters
+OWASP:
 
-A04:2025 — Cryptographic Failures
-  Detect: MD5/SHA1 for security purposes, ECB mode, hardcoded keys
-  Fix: SHA256 minimum; HMACSHA256 for authentication; AES-GCM for encryption;
-       Rfc2898DeriveBytes for password-derived keys
-
-A01:2025 — Broken Access Control (IDOR)
-  Detect: endpoints using user-supplied IDs without ownership verification
-  Pattern: GET /orders/{id} returns any order regardless of owner
-  Fix: ownership check — where o.Id == id && o.CustomerId == currentUser.Id
+```text
+A04 Cryptographic Failures
+A05 Injection
+A08 Software or Data Integrity Failures
 ```
 
-## Layer 4: Auth Configuration — A07:2025 Authentication Failures / A01:2025 Broken Access Control
+## SQL Injection
 
-```
-CHECKLIST:
-1. All endpoints have explicit auth attributes
-   - find_references("AllowAnonymous") — list deliberately public endpoints
-   - find_references("Authorize") — list protected endpoints
-   - Gap: endpoints with neither (behavior depends on ambient global config)
-
-2. JWT validation is strict
-   - ValidateIssuer / ValidateAudience / ValidateLifetime /
-     ValidateIssuerSigningKey — all true
-   - ClockSkew: 1 minute max (the 5-minute default is too generous)
-
-3. Policies are specific
-   - BAD: bare [Authorize] — only checks "is authenticated"
-   - GOOD: [Authorize(Policy = "OrderAdmin")] — role/claim-based
-
-4. No bypass patterns
-   - UseAuthentication() before UseAuthorization()
-   - No global AllowAnonymous accidentally opening everything
-   - API key validation in middleware, not per-controller
-```
+Look for SQL constructed from untrusted input:
 
 ```csharp
-// BAD — weak validation: anyone can issue tokens, expired tokens accepted
-options.TokenValidationParameters = new()
+var sql =
+    $"SELECT * FROM Orders WHERE Name = '{search}'";
+```
+
+or interpolated/concatenated data passed to APIs that do not parameterize it.
+
+Prefer:
+
+```text
+EF Core LINQ
+parameterized SQL
+FromSqlInterpolated where appropriate
+ADO.NET/Dapper parameters
+```
+
+Do not report normal EF Core LINQ as SQL injection merely because user input
+participates in a predicate.
+
+## Command Injection
+
+Inspect:
+
+```text
+Process.Start
+shell execution
+PowerShell/bash invocation
+command arguments built from user input
+```
+
+Prefer APIs that separate executable and arguments.
+
+Validate or constrain external input when command execution is genuinely needed.
+
+## Path Traversal
+
+Review user-controlled:
+
+```text
+file names
+paths
+archive extraction
+download paths
+upload destinations
+```
+
+Look for:
+
+```text
+../
+absolute-path injection
+path escaping from intended root
+unsafe archive extraction
+```
+
+Normalize and verify paths remain within the intended storage boundary.
+
+## SSRF
+
+Inspect outbound requests where users can influence:
+
+```text
+scheme
+host
+port
+full URL
+redirect destination
+```
+
+Pay particular attention when the server can access internal networks,
+metadata endpoints, or privileged services.
+
+Do not report every user-supplied query parameter in an outbound request as
+SSRF; host/control-plane influence matters.
+
+## XSS / Unsafe HTML
+
+For Angular, investigate deliberate sanitizer bypasses such as:
+
+```text
+bypassSecurityTrustHtml
+bypassSecurityTrustScript
+bypassSecurityTrustResourceUrl
+direct DOM manipulation with untrusted content
+```
+
+Ordinary Angular binding benefits from framework escaping/sanitization and is not
+automatically XSS.
+
+Review deliberate raw HTML handling in any server-rendered UI as well.
+
+## Unsafe Deserialization
+
+Investigate dangerous polymorphic/type-driven deserialization mechanisms.
+
+Legacy examples include:
+
+```text
+BinaryFormatter
+unsafe Newtonsoft TypeNameHandling configurations
+```
+
+Do not deserialize untrusted payloads into arbitrary runtime types.
+
+## Cryptography
+
+Flag security-sensitive uses of:
+
+```text
+MD5
+SHA1
+ECB mode
+hardcoded encryption keys
+custom password hashing
+home-grown encryption protocols
+```
+
+Do not flag MD5/SHA1 solely when used as a non-security checksum and collision
+resistance is irrelevant.
+
+For passwords, use established password-hashing facilities such as ASP.NET Core
+Identity/password hashers rather than reversible encryption.
+
+Do not recommend custom cryptography.
+
+# Layer 4: Authentication and Access Control
+
+OWASP:
+
+```text
+A01:2025 Broken Access Control
+A07:2025 Authentication Failures
+```
+
+## Effective Authorization
+
+Determine effective access policy.
+
+Inspect:
+
+```text
+fallback/global authorization policy
+controller [Authorize]
+action [Authorize]
+[AllowAnonymous]
+policy names
+role/claim requirements
+resource-based authorization
+```
+
+An endpoint without an explicit `[Authorize]` is not automatically vulnerable if
+a secure fallback/global policy protects it.
+
+Likewise, bare `[Authorize]` is not automatically insufficient when simple
+authentication is the intended requirement.
+
+Identify the actual authorization behavior.
+
+## Anonymous Access
+
+Review `[AllowAnonymous]` and other deliberately public surfaces.
+
+Confirm public access is intentional.
+
+Do not report every public endpoint as a vulnerability.
+
+## Resource Authorization / IDOR
+
+Look for operations such as:
+
+```text
+GET /orders/{id}
+PUT /users/{id}
+DELETE /documents/{id}
+```
+
+where possession of an identifier could be enough to access another user's or
+tenant's data.
+
+Verify ownership, tenant, permission, or resource policy where required.
+
+Client-side filtering is not authorization.
+
+## Authentication Configuration
+
+When Bearer/OIDC authentication is used, inspect whether the configured
+authentication mechanism appropriately validates:
+
+```text
+issuer
+audience where applicable
+signature/signing authority
+lifetime
+```
+
+Do not require manually setting every `TokenValidationParameters` property when
+the selected framework/provider already establishes secure validation through
+its authority/metadata configuration.
+
+Do not impose an arbitrary universal `ClockSkew` value as a vulnerability rule.
+
+Flag intentionally disabled validation when it weakens the actual authentication
+contract without a valid reason.
+
+## Passwords and Accounts
+
+When the application owns local accounts, review:
+
+```text
+password hashing
+password reset behavior
+lockout/brute-force controls where appropriate
+account-enumeration behavior
+credential storage
+```
+
+Do not recommend custom password hashing.
+
+## Angular
+
+Route guards and hidden/disabled buttons are UX mechanisms.
+
+Verify that sensitive operations are protected by the backend.
+
+# Layer 5: Browser and HTTP/API Security
+
+OWASP:
+
+```text
+A01 Broken Access Control
+A02 Security Misconfiguration
+```
+
+## CORS
+
+CORS is a browser-origin policy, not an authorization mechanism.
+
+Review whether the configured origins match the actual browser-client model.
+
+Potential problems include:
+
+```text
+unnecessarily broad trusted origins
+credentialed requests from untrusted origins
+environment-specific origins accidentally exposed in Production
+```
+
+`AllowAnyOrigin()` can be valid for a genuinely public non-credentialed API.
+
+Do not report wildcard origin alone as a vulnerability without considering the
+API's intended exposure.
+
+Credentialed cross-origin access requires appropriately restricted origins.
+
+## CSRF
+
+When browser credentials are sent automatically, especially cookies, review CSRF
+protection for state-changing operations.
+
+Bearer tokens explicitly attached through the Authorization header have different
+CSRF characteristics.
+
+Do not assume Angular itself provides server-side CSRF protection for every
+authentication model.
+
+## TLS
+
+Review:
+
+```text
+disabled certificate validation
+accept-all certificate callbacks
+plain HTTP for sensitive external communication
+```
+
+Account for TLS termination at reverse proxies, ingress, gateways, or hosting
+platforms.
+
+Absence of HTTPS redirection in application code is not automatically a
+vulnerability when the hosting topology correctly enforces TLS.
+
+## File Uploads
+
+When uploads exist, inspect:
+
+```text
+size limits
+storage path safety
+file-name handling
+content/type assumptions
+execution/public-serving risks
+authorization
+```
+
+Do not trust the client-provided MIME type as authoritative.
+
+## Rate Limiting
+
+Consider rate limiting where abuse could realistically matter, such as:
+
+```text
+login/password reset
+expensive anonymous endpoints
+resource-intensive operations
+```
+
+Do not require rate limiting on every endpoint.
+
+Follow `http-api` for `429` semantics.
+
+# Layer 6: Sensitive Data, Logging, and Error Exposure
+
+OWASP:
+
+```text
+A04 Cryptographic Failures
+A09 Security Logging & Alerting Failures
+```
+
+## Logging
+
+Never log:
+
+```text
+passwords
+access/refresh tokens
+private keys
+authentication secrets
+full payment credentials
+```
+
+Review PII according to project requirements.
+
+Prefer technical identifiers over identity data where practical.
+
+Do not consider Debug/Trace level a security boundary.
+
+Review duplicate or missing security-relevant logging in context; do not demand
+logs for every successful request.
+
+## Error Responses
+
+Review public errors for:
+
+```text
+stack traces
+SQL
+connection strings
+internal filesystem paths
+secret values
+internal exception details
+```
+
+Use the project's centralized error-handling policy.
+
+## Response Data
+
+Look for:
+
+```text
+database/domain entities returned directly
+password hashes
+internal security fields
+unnecessary personal information
+secret metadata
+```
+
+Prefer explicit response contracts where needed.
+
+Do not assume returning a Domain entity is automatically vulnerable; inspect the
+actual serialized fields.
+
+## Data at Rest
+
+Do not prescribe ASP.NET Core Data Protection as a universal database-encryption
+solution.
+
+Choose protection according to the requirement:
+
+```text
+password -> one-way password hashing
+verification-only token -> often hash rather than reversible encryption
+retrievable application secret -> appropriate protected/encrypted storage
+database/storage encryption -> platform/database mechanism when suitable
+temporary application payload -> ASP.NET Core Data Protection may be suitable
+```
+
+Do not roll custom cryptography.
+
+# Layer 7: Exceptional Conditions and Failure Handling
+
+OWASP:
+
+```text
+A06:2025 Insecure Design
+A10:2025 Mishandling of Exceptional Conditions
+```
+
+Review exceptional paths where failure could weaken security or correctness.
+
+## Fail-Open Behavior
+
+Investigate code that catches an exception and then allows a privileged operation
+to continue.
+
+Examples:
+
+```text
+authorization service failed -> allow
+token validation failed -> continue as anonymous but perform privileged action
+permission lookup failed -> default to permitted
+```
+
+Security-sensitive checks should normally fail safely.
+
+## Swallowed Exceptions
+
+Review:
+
+```csharp
+catch (Exception)
 {
-    ValidateIssuer = false,
-    ValidateAudience = false,
-    ValidateLifetime = false,
-    IssuerSigningKey = new SymmetricSecurityKey("short-key"u8.ToArray()) // < 256 bits
-};
-
-// GOOD — validate everything, strict skew, 256-bit+ key from configuration
-options.TokenValidationParameters = new()
-{
-    ValidateIssuer = true,
-    ValidIssuer = builder.Configuration["Jwt:Issuer"],
-    ValidateAudience = true,
-    ValidAudience = builder.Configuration["Jwt:Audience"],
-    ValidateLifetime = true,
-    ClockSkew = TimeSpan.FromMinutes(1),
-    ValidateIssuerSigningKey = true,
-    IssuerSigningKey = new SymmetricSecurityKey(
-        Convert.FromBase64String(builder.Configuration["Jwt:Key"]!))
-};
+}
 ```
 
-## Layer 5: CORS Configuration — A02:2025 Security Misconfiguration
+and broad catch blocks that continue without a deliberate fallback.
 
-```csharp
-// CRITICAL — wildcard origin with credentials (browsers block the combo,
-// but it signals a misunderstanding of CORS)
-policy.AllowAnyOrigin().AllowCredentials();
+Not every swallowed exception is a vulnerability, but security-relevant failures
+must not silently convert into success.
 
-// HIGH — wildcard origin: any website can read API responses.
-// Acceptable ONLY for truly public data feeds.
-policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+## Retry and Idempotency
 
-// GOOD — explicit origins, methods, and headers from configuration
-policy.WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()!)
-      .AllowCredentials()
-      .WithMethods("GET", "POST", "PUT", "DELETE")
-      .WithHeaders("Content-Type", "Authorization");
+Review retries of state-changing operations.
+
+A lost response followed by retry can create duplicate effects.
+
+Follow the `resilience` and `httpclient-factory` skills.
+
+Do not classify caller cancellation as a transient failure requiring retry.
+
+## Timeouts and Resource Exhaustion
+
+Review external operations or public inputs that can consume unbounded:
+
+```text
+time
+memory
+database rows
+file size
+request body
+retry attempts
+parallel work
 ```
 
-Also check: exposed headers leaking internals, overly broad methods, and
-dev-vs-prod policy separation.
+A theoretical lack of limit is not automatically High severity; evaluate whether
+an attacker can actually exploit it.
 
-## Layer 6: Data Protection — A04:2025 Cryptographic Failures / A09:2025 Logging & Alerting Failures
+## Startup and Configuration Failure
 
-```
-CHECKS:
-1. PII in logs — email, phone, SSN, card numbers in log statements
-   Rule: log identifiers (IDs), not identity data
-2. Over-broad responses — returning full entities (password hash included)
-   Fix: response DTOs that exclude sensitive fields
-3. Sensitive data stored plaintext — API keys, tokens in the database
-   Fix: IDataProtector before storage; never roll your own encryption
-4. Secrets in appsettings.json
-   Fix: user secrets (dev), Key Vault / environment variables (prod)
+Review security-sensitive startup configuration for dangerous fallback.
+
+Examples:
+
+```text
+invalid auth configuration -> authentication silently disabled
+missing encryption key -> plaintext mode
+failed authorization provider -> allow-all fallback
 ```
 
-```csharp
-// BAD — PII in logs
-logger.LogInformation("Order placed by {Email} for {CreditCard}",
-    order.CustomerEmail, order.PaymentCard);
+Prefer visible failure over insecure fallback when a required security control
+cannot initialize.
 
-// GOOD — identifiers only
-logger.LogInformation("Order {OrderId} placed by customer {CustomerId}",
-    order.Id, order.CustomerId);
+## Unexpected Error Exposure
+
+Confirm unexpected exceptions follow the project's centralized error-handling
+policy and do not reveal sensitive information.
+
+# Cross-Cutting Design Review
+
+Static pattern checks do not fully cover:
+
+```text
+A06 Insecure Design
+tenant isolation
+business workflow abuse
+privilege escalation through legitimate operations
+financial/idempotency abuse
+multi-step authorization problems
 ```
 
-## Finding Format and Report Template
+When the application has meaningful security-sensitive workflows, identify them
+as candidates for threat modeling or dedicated manual review rather than claiming
+the static scan proves them secure.
 
-Each finding: `#### [SEVERITY] File:Line — Title` with OWASP category,
-description, impact, and remediation (code before/after). Never "fix this" —
-always the specific change.
+# Severity Guidance
+
+Do not mechanically map:
+
+```text
+pattern -> fixed severity
+CVSS -> application severity
+OWASP category -> severity
+```
+
+Consider actual reachability and impact.
+
+Examples:
+
+```text
+real production private key committed publicly
+→ potentially Critical
+
+raw SQL string containing only developer-controlled constant text
+→ not SQL injection
+
+missing [Authorize] while secure fallback policy exists
+→ not a finding
+
+PII logged in a restricted internal diagnostic environment
+→ contextual finding, not automatically High
+```
+
+# Report Format
+
+For each finding:
 
 ```markdown
-## Security Scan Report
+### [HIGH] src/.../File.cs:42 — Resource authorization missing
 
-**Project:** MyApp | **Date:** 2026-03-04 | **Scanner:** Claude (static analysis)
+OWASP: A01:2025 Broken Access Control
 
-> This is a static analysis scan. It catches known patterns but does not replace
-> penetration testing, dynamic analysis, or threat modeling.
+Evidence:
+The endpoint loads an order solely by route ID and does not constrain it to the
+authenticated customer.
 
-### Summary
+Impact:
+An authenticated user who learns another order ID may access that customer's
+order.
 
-| Severity | Count |
-|----------|-------|
-| Critical | 0 |
-| High | 2 |
-| Medium | 3 |
-| Low | 1 |
-
-### Findings
-
-#### [HIGH] src/Orders/Features/SearchOrders.cs:34 — SQL Injection (A05:2025)
-Current: FromSqlRaw($"SELECT * FROM Orders WHERE Name LIKE '%{search}%'")
-Impact: attacker can read/modify/delete any data in the database.
-Fix: db.Orders.Where(o => EF.Functions.Like(o.Name, $"%{search}%"))
-
-#### [HIGH] src/Api/Program.cs:12 — Missing authorization on DELETE endpoint (A01:2025)
-...
-
-### Layer Results
-
-| Layer | Status | Findings |
-|-------|--------|----------|
-| 1. Package Vulnerabilities | PASS | 0 CVEs |
-| 2. Secrets Detection | PASS | No hardcoded secrets |
-| 3. OWASP Code Patterns | FAIL | 1 SQL injection, 1 insecure deserialization |
-| 4. Auth Configuration | WARN | 2 endpoints missing explicit auth |
-| 5. CORS Configuration | PASS | Origins properly restricted |
-| 6. Data Protection | WARN | PII found in 2 log statements |
+Remediation:
+Apply resource/ownership authorization before returning the order.
 ```
+
+When evidence is incomplete:
+
+```markdown
+### [NEEDS VERIFICATION] ...
+
+The static code suggests ..., but effective behavior depends on ...
+```
+
+Do not invent exploitability that the code does not establish.
