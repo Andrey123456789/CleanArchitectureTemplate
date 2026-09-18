@@ -96,7 +96,12 @@ Check, when relevant:
 - sensitive logging;
 - concurrency;
 - migrations;
+- development seed-data consistency when Domain/persistence changes affect seeded entities;
 - cache consistency.
+
+When a migration or Domain-model change affects entities represented by
+development seed data, verify that `DbSeeder` was reviewed and updated when
+necessary.
 
 ## Step 6: Integrations
 

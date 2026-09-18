@@ -26,7 +26,8 @@ Confirm:
 
 - changes match the requested scope;
 - unrelated refactoring was not introduced accidentally;
-- temporary diagnostics and probes are removed;
+- temporary diagnostics and probes are removed only after any behavior they
+  uniquely verified has been preserved as maintained automated test coverage;
 - no generated/build artifacts were accidentally added;
 - no secrets or environment-specific credentials were introduced.
 
@@ -92,6 +93,11 @@ Examples:
 - EF Core boundary;
 - Unit of Work behavior;
 - dependency direction.
+- development seed-data consistency when model changes affect seeded entities.
+
+When a Domain or persistence change affects the development seed graph, verify
+that `DbSeeder` remains valid and representative for a freshly recreated
+Development database.
 
 Do not perform a full architecture audit for a documentation-only or unrelated
 change.

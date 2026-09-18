@@ -454,6 +454,23 @@ internal static class DbSeeder
         throw new NotImplementedException();
     }
 }
+
+public static class DatabaseInitializationExtensions
+{
+    public static async Task SeedDevelopmentDataAsync(
+        this IServiceProvider services,
+        CancellationToken cancellationToken = default)
+    {
+        await using var scope = services.CreateAsyncScope();
+
+        var db = scope.ServiceProvider
+            .GetRequiredService<AppDbContext>();
+
+        await DbSeeder.SeedAsync(
+            db,
+            cancellationToken);
+    }
+}
 ```
 
 The concrete seed entities and states must match the actual current Domain and
@@ -461,20 +478,21 @@ persistence model.
 
 ### Startup
 
-Invoke the seeder during application startup only when the host is running in
-the `Development` environment.
+Invoke the development seeder from application startup only when the host is
+running in the `Development` environment.
+
+Keep `DbSeeder` itself internal to Infrastructure. Expose a narrow Infrastructure
+initialization extension rather than exposing the seeder implementation.
 
 ```csharp
 if (app.Environment.IsDevelopment())
 {
-    await using var scope = app.Services.CreateAsyncScope();
-
-    var db = scope.ServiceProvider
-        .GetRequiredService<AppDbContext>();
-
-    await DbSeeder.SeedAsync(db);
+    await app.Services.SeedDevelopmentDataAsync();
 }
 ```
+
+The Infrastructure extension creates the required scope and delegates to the
+internal `DbSeeder`.
 
 Do not automatically run migrations as part of this rule.
 
@@ -549,8 +567,10 @@ Pay particular attention to:
 - indexes;
 - foreign keys and delete behavior.
 
-Do not automatically apply migrations to production on application startup
-unless the project has explicitly adopted and secured that deployment strategy.
+Never automatically apply migrations to Production on application startup.
+
+Production database migrations must be performed as an explicit deployment or
+operational step using the project's chosen migration strategy.
 
 For controlled production deployment, generated migration scripts are often
 preferable.

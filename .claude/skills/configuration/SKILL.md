@@ -76,24 +76,27 @@ builder.Services.AddOptions<DatabaseOptions>()
 ### Injecting Options
 
 ```csharp
-// IOptions<T> — singleton, read once at startup, doesn't change
-public class OrderService(IOptions<DatabaseOptions> options)
+// IOptions<T> — stable configuration value
+public sealed class PricingService(
+    IOptions<PricingOptions> options)
 {
-    private readonly DatabaseOptions _db = options.Value;
+    private readonly PricingOptions _pricing = options.Value;
 }
 
-// IOptionsSnapshot<T> — scoped, re-reads per request (for reloadable config)
-public class OrderService(IOptionsSnapshot<DatabaseOptions> options)
+// IOptionsSnapshot<T> — refreshed for each created scope
+public sealed class PricingService(
+    IOptionsSnapshot<PricingOptions> options)
 {
-    private readonly DatabaseOptions _db = options.Value;
+    private readonly PricingOptions _pricing = options.Value;
 }
 
-// IOptionsMonitor<T> — singleton, actively watches for changes
-public class BackgroundWorker(IOptionsMonitor<WorkerOptions> options)
+// IOptionsMonitor<T> — supports observing current values over time
+public sealed class BackgroundWorker(
+    IOptionsMonitor<WorkerOptions> options)
 {
     public void DoWork()
     {
-        var current = options.CurrentValue; // Always latest
+        var current = options.CurrentValue;
     }
 }
 ```
@@ -158,21 +161,23 @@ registration is normal. The problem is making ordinary application services
 depend on configuration keys and parsing.
 
 ```csharp
-// BAD — stringly-typed, no validation, hard to test
-public class OrderService(IConfiguration config)
+// BAD — stringly typed and scattered configuration access
+public sealed class PricingService(IConfiguration configuration)
 {
-    public void Process()
+    public decimal GetDiscount()
     {
-        var timeout = int.Parse(config["Database:CommandTimeout"]!);
+        return decimal.Parse(
+            configuration["Pricing:DefaultDiscount"]!);
     }
 }
 
-// GOOD — strongly-typed options
-public class OrderService(IOptions<DatabaseOptions> options)
+// GOOD — strongly typed options
+public sealed class PricingService(
+    IOptions<PricingOptions> options)
 {
-    public void Process()
+    public decimal GetDiscount()
     {
-        var timeout = options.Value.CommandTimeoutSeconds;
+        return options.Value.DefaultDiscount;
     }
 }
 ```
