@@ -1,69 +1,109 @@
 ---
-alwaysApply: true
-description: >
-  Enforces modern C# 14 coding conventions, naming standards, and file
-  organization for all .NET code in this repository.
+paths:
+  - "src/**/*.cs"
+  - "tests/**/*.cs"
 ---
 
 # C# Coding Style
 
-## File Organization
+## General Principle
 
-- **File-scoped namespaces always.** Block-scoped namespaces waste indentation for zero benefit.
-- **One type per file.** File name must match the type name exactly (`OrderService.cs` contains `OrderService`).
-- **Order members:** constants, fields, constructors, properties, public methods, private methods. Consistent ordering reduces cognitive load when scanning a file.
+Follow the repository's existing conventions and `.editorconfig`.
 
-## Type Declarations
+Prefer modern C# features when they improve clarity, but do not rewrite working
+code solely to use newer syntax.
 
-- **Primary constructors for DI injection.** Eliminates boilerplate field assignments and `_field = field` ceremony.
+Consistency and readability are more important than maximizing use of language
+features.
+
+## Files and Namespaces
+
+- Prefer file-scoped namespaces for new files when consistent with the project.
+- Normally keep one primary top-level type per file.
+- The file name should normally match the primary type name.
+- Small private or nested supporting types may remain with the owning type when
+  that improves locality.
+
+Do not reorganize an existing file merely to satisfy a preferred member ordering.
+
+## Constructors
+
+Primary constructors are appropriate when dependency injection or simple
+initialization remains clear.
 
 ```csharp
-// DO
-public sealed class OrderService(IDbContext db, TimeProvider clock) { }
-
-// DON'T
-public class OrderService
+public sealed class OrderService(
+    IOrderRepository orders,
+    IUnitOfWork unitOfWork)
 {
-    private readonly IDbContext _db;
-    public OrderService(IDbContext db) { _db = db; }
 }
 ```
 
-- **Records for DTOs and value objects.** Immutability, value equality, and `with` expressions for free.
+Use a regular constructor when:
 
-```csharp
-public sealed record CreateOrderRequest(string ProductId, int Quantity);
-public sealed record Money(decimal Amount, string Currency);
-```
+- validation or initialization is non-trivial;
+- explicit fields improve readability;
+- the existing codebase uses that style consistently;
+- primary-constructor parameter capture would make the class harder to understand.
 
-- **`sealed` on classes not designed for inheritance.** The JIT can devirtualize calls on sealed types, and it communicates intent clearly.
-- **`internal` by default, `public` only when needed.** Minimize the public API surface. If nothing outside the project references it, it should be `internal`.
+Do not convert constructors mechanically.
 
-## Expressions and Patterns
+## Records and Classes
 
-- **Collection expressions over constructor calls.** Shorter, compiler-optimized, and consistent across collection types.
+Use records when value semantics and immutability are desirable, for example
+many DTOs and genuine Value Objects.
 
-```csharp
-// DO
-List<int> ids = [1, 2, 3];
-int[] arr = [4, 5, 6];
-```
+Use classes when identity, mutable lifecycle, inheritance, or framework behavior
+makes class semantics clearer.
 
-- **Pattern matching over if-else chains.** Switch expressions and `is` patterns are more readable and exhaustiveness-checked.
+Do not turn every DTO or Domain type into a record automatically.
 
-```csharp
-// DO
-var label = status switch
-{
-    OrderStatus.Pending => "Awaiting payment",
-    OrderStatus.Shipped => "On the way",
-    _ => "Unknown"
-};
-```
+## Visibility and Inheritance
 
-## Naming and Modifiers
+Keep implementation details non-public when they do not need to form part of
+the project's public API.
 
-- **`var` for obvious types, explicit types when clarity matters.** Use `var` when the right-hand side makes the type self-evident (`var order = new Order()`); spell it out when it does not (`HttpResponseMessage response = await ...`).
-- **Async suffix on all async methods.** `GetOrderAsync`, not `GetOrder`, for methods returning `Task` or `ValueTask`. Prevents accidental sync calls.
-- **PascalCase** for public members, types, namespaces, and methods. **camelCase** for local variables and parameters.
-- **No `_` prefix on private fields when using primary constructors.** The parameter name is the field name.
+Use `sealed` when the type is deliberately not intended for inheritance and the
+modifier communicates useful design intent.
+
+Do not add `sealed` merely as a speculative JIT optimization.
+
+## Modern Syntax
+
+Use collection expressions, pattern matching, switch expressions, target-typed
+construction, and other modern C# features when they make the code easier to
+read.
+
+Do not prefer newer syntax when the resulting code is less obvious.
+
+## Type Inference
+
+Use `var` when the type is obvious from the right-hand side or the exact type is
+not important to understanding the code.
+
+Use an explicit type when it improves clarity.
+
+## Async Naming
+
+Methods returning `Task` or `ValueTask` should normally use the `Async` suffix,
+following standard .NET conventions and existing interface contracts.
+
+Do not rename framework implementations or established APIs solely to add the
+suffix when doing so would break an existing contract.
+
+## Naming
+
+Use standard .NET naming conventions:
+
+- PascalCase for types, methods, properties, and public members;
+- camelCase for parameters and local variables;
+- meaningful names over abbreviations.
+
+Private-field naming should follow the repository's established convention.
+
+## Scope Discipline
+
+Do not perform style-only rewrites outside the requested change unless explicitly
+asked.
+
+Avoid mixing large formatting or modernization changes with functional work.

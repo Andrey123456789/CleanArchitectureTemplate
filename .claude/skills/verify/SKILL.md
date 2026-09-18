@@ -1,197 +1,176 @@
 ---
 name: verify
 description: >
-  Run a comprehensive 7-phase verification pipeline for .NET projects: build,
-  analyzers, antipattern detection, tests, security, formatting, and diff
-  review. Each phase produces PASS/FAIL with actionable output and the pipeline
-  short-circuits on critical failures. Also the authority on verification
-  strategy: which phases to run for a given change, quality gates, and
-  fix-and-retry loops. Use when: "verify", "check everything", "is this ready",
-  "pre-PR check", "run all checks", "quality gate", "verification strategy",
-  "which checks should run", or after completing a feature or refactor.
+  Verify completed .NET changes before declaring them finished. Covers build,
+  relevant tests, behavioral verification, formatting/analyzers when configured,
+  architecture checks, dependency/security checks when relevant, and final diff
+  review. Use when finishing a feature, bug fix, refactor, or preparing a PR.
 ---
 
-# /verify -- 7-Phase Verification Pipeline
+# Verify Changes
 
-## What
+## Goal
 
-Runs a sequential, 7-phase verification pipeline that catches issues at every level --
-from compiler errors to subtle antipatterns to formatting drift. Each phase produces
-an explicit PASS, WARN, or FAIL with details. "It looks fine" is not a verification
-result; a table of statuses is. Critical failures (Phase 1 build, Phase 4 tests)
-short-circuit the pipeline because later phases cannot produce meaningful results
-on broken code.
+Produce evidence that the requested change is complete and has not introduced
+obvious regressions.
 
-The pipeline answers one question: **"Is this code ready for review?"**
+Verification should match the scope and risk of the change.
 
-| Phase | Tool | What It Catches | Critical |
-|-------|------|-----------------|----------|
-| 1. Build | `dotnet build` | Compilation errors, missing references | Yes |
-| 2. Diagnostics | `get_diagnostics` (MCP) | New analyzer warnings, nullability issues | FAIL on new errors |
-| 3. Antipatterns | `detect_antipatterns` (MCP) | async void, sync-over-async, `DateTime.Now`, more | No |
-| 4. Tests | `dotnet test` | Failing tests, regressions | Yes |
-| 5. Security | `dotnet list package --vulnerable` + scan | Secrets, SQL injection, missing auth, vulnerable packages | FAIL on critical/high |
-| 6. Format | `dotnet format --verify-no-changes` | Style drift, formatting inconsistencies | No |
-| 7. Diff Review | `git diff` analysis | Accidental changes, debug leftovers, TODOs | No |
+Do not require optional tooling that the repository has not configured.
 
-## When
+## 1. Inspect the Change
 
-- After completing a feature, bug fix, or major refactor
-- Before creating a pull request -- non-negotiable, full pipeline
-- After merging upstream changes or updating dependencies
-- When the user says "verify", "check everything", "is this ready", "run all checks"
-- As the final step before marking a task complete
+Review the final changed-file set and diff.
 
-### Which Phases to Run
+Confirm:
 
-Full pipeline is the default. For scoped changes, run a subset:
+- changes match the requested scope;
+- unrelated refactoring was not introduced accidentally;
+- temporary diagnostics and probes are removed;
+- no generated/build artifacts were accidentally added;
+- no secrets or environment-specific credentials were introduced.
 
-| Scenario | Phases | Notes |
-|----------|--------|-------|
-| Feature complete / Pre-PR / new endpoint | All 7 | No shortcuts |
-| Bug fix | 1, 2, 4 | Add a test first if none covers it |
-| After refactor | 1, 2, 3, 4 | Correctness focus; add 5-7 if security-sensitive |
-| Dependency update | 1, 4, 5 | Build, tests, vulnerability scan |
-| Config or test-only change | 1, 4 | Build and test |
-| Formatting only | 6 | Format check is sufficient |
+## 2. Build
 
-When in doubt, run all 7. Extra phases cost minutes; a missed security issue costs
-days of incident response. Never cherry-pick phases because a change "looks safe".
+Build the affected solution or projects.
 
-## How
-
-### Phase 1: Build (CRITICAL -- short-circuits)
+Typical command:
 
 ```bash
-dotnet build --no-restore --verbosity quiet
+dotnet build
 ```
 
-- If the build fails, STOP. Report errors and fix before continuing -- nothing
-  downstream is meaningful on code that does not compile.
-- Capture the warning count even on PASS; new warnings are tracked in Phase 2.
-- Output: PASS (0 errors) or FAIL (with error list)
+Use a more targeted project/solution command when appropriate.
 
-### Phase 2: Diagnostics
+Do not use `--no-restore` unless restore is already known to be complete.
 
-Use the Roslyn MCP `get_diagnostics` tool, scoped to changed files/projects
-(full solution for cross-cutting changes). Compare against baseline -- flag only
-NEW warnings introduced by the current changes. Common findings: CS8600/CS8602
-(nullability), CS0219 (unused variable).
+A build failure means the implementation is not complete.
 
-Output: PASS (0 new) / WARN (new warnings) / FAIL (new errors). Treat new
-warnings as work -- today's CS8600 is next month's production NullReferenceException.
+## 3. Run Relevant Tests
 
-### Phase 3: Antipattern Detection
+Run tests covering the changed area.
 
-Use the Roslyn MCP `detect_antipatterns` tool on changed files (full project for
-broad changes). Catches: `async void`, sync-over-async (`.Result`,
-`.GetAwaiter().GetResult()`), `new HttpClient()`, `DateTime.Now`/`UtcNow` instead
-of `TimeProvider`, broad `catch (Exception)`, string interpolation in logging,
-missing `CancellationToken`, EF read queries without `AsNoTracking`.
-
-Output: PASS (0 findings) / WARN (findings) / FAIL (critical antipatterns)
-
-### Phase 4: Tests (CRITICAL -- short-circuits)
+Typical command:
 
 ```bash
-dotnet test --no-build --verbosity quiet
+dotnet test --no-build
 ```
 
-- Full suite, or scoped to affected test projects for large solutions.
-- Any failing test is a FAIL -- no exceptions. Stop and fix before later phases.
-- If no test project exists: SKIP with a recommendation to add tests.
+For small solutions, running the complete suite is appropriate.
 
-Output: PASS (all green) or FAIL (failing test names + error messages)
+For large solutions, affected test projects may be run first, followed by any
+broader suite required by the repository or change risk.
 
-### Phase 5: Security Scan
+Any newly failing relevant test must be investigated.
+
+Do not ignore a failure merely because it appears unrelated without checking it.
+
+## 4. Preserve Behavioral Verification
+
+If a new behavioral probe was used to demonstrate that the implementation works,
+follow the `testing` skill.
+
+The verified behavior must be represented by maintained automated test coverage,
+unless equivalent coverage already exists.
+
+Temporary curl, PowerShell, HTTP, database, or diagnostic scripts are not a
+substitute for maintained behavior tests.
+
+Build, compiler, formatter, and static-analysis commands do not themselves
+require new tests.
+
+## 5. Architecture Check
+
+When the change touches architectural boundaries, verify the relevant
+`architecture.md` rules.
+
+Examples:
+
+- project references;
+- API → Application flow;
+- repository abstractions;
+- EF Core boundary;
+- Unit of Work behavior;
+- dependency direction.
+
+Do not perform a full architecture audit for a documentation-only or unrelated
+change.
+
+## 6. Formatting and Static Analysis
+
+If the repository configures formatting or analyzers, run the appropriate checks.
+
+For example:
+
+```bash
+dotnet format --verify-no-changes
+```
+
+Do not add a formatter/analyzer dependency solely in order to complete ordinary
+verification unless requested.
+
+Treat analyzer output as evidence that still requires context.
+
+## 7. Dependency and Security Verification
+
+For dependency changes or security-sensitive work, inspect package
+vulnerabilities and changed security behavior.
+
+For example, when supported by the installed SDK:
 
 ```bash
 dotnet list package --vulnerable --include-transitive
 ```
 
-Then review changed files for: hardcoded secrets/connection strings/API keys,
-SQL injection (raw SQL without parameterization), missing `[Authorize]` on
-endpoints that need it, permissive CORS, missing input validation, disabled
-HTTPS or certificate validation.
+Also inspect relevant changes for:
 
-Output: PASS / WARN (medium/low findings) / FAIL (critical/high vulnerabilities)
+- secrets;
+- authorization;
+- SQL/raw query safety;
+- CORS/TLS changes;
+- sensitive logging;
+- disabled certificate validation.
 
-### Phase 6: Format Check
+A full security scan is not necessary for every small business-logic change.
 
-```bash
-dotnet format --verify-no-changes --verbosity quiet
+## 8. Final Diff Review
+
+Review the final diff after all fixes.
+
+Check for:
+
+- accidental unrelated edits;
+- commented-out code;
+- temporary logging;
+- TODO/FIXME markers introduced unintentionally;
+- stale temporary tests or scripts;
+- architecture drift;
+- behavior that was verified manually but never preserved as a test.
+
+## Fix-and-Retry
+
+When verification fails:
+
+1. Identify the concrete failure.
+2. Make the smallest appropriate fix.
+3. Re-run the affected verification.
+4. Re-run build/tests when the fix changed code.
+5. Repeat until the change is green or user input is required.
+
+Do not hide a known failure and declare completion.
+
+## Reporting
+
+Report what was actually run.
+
+Example:
+
+```text
+Build: PASS
+Tests: PASS — 42 tests
+Formatting: PASS
+Security/dependency scan: NOT RUN — no dependency/security change
+Diff review: PASS
 ```
 
-Reports drift without auto-fixing. To resolve, run `dotnet format` and include
-the changes in the commit. If no `.editorconfig` exists, note it as a recommendation.
-
-Output: PASS / WARN (with file list)
-
-### Phase 7: Diff Review
-
-Analyze `git diff --stat` and `git diff` (staged + unstaged) for:
-- Accidental or unrelated file changes (`.vs/`, `bin/`, `obj/`, `.env`, secrets)
-- Debug leftovers (`Console.WriteLine`, `#if DEBUG` in production paths)
-- Unresolved TODO/HACK/FIXME markers
-- Scope mismatch -- changes must match the task/PR description
-
-Output: PASS (clean, matches intent) / WARN (with findings)
-
-### Fix-and-Retry Loop
-
-A single pass rarely produces all-green. The loop is the point:
-
-1. **IDENTIFY** -- which phase failed, and the specific error
-2. **FIX** -- make the minimal change that resolves it
-3. **RE-RUN** -- from Phase 1 if the fix changed code; otherwise from the failed phase
-4. **REPEAT** -- until all phases pass, or an issue needs user input
-
-### Final Summary
-
-```
-## Verification Results
-
-| Phase | Result | Details |
-|-------|--------|---------|
-| 1. Build | PASS | 0 errors, 0 warnings |
-| 2. Diagnostics | PASS | 0 new diagnostics |
-| 3. Antipatterns | WARN | 1 missing CancellationToken |
-| 4. Tests | PASS | 47 passed, 0 failed |
-| 5. Security | PASS | No findings |
-| 6. Format | PASS | Clean |
-| 7. Diff Review | WARN | 1 TODO marker found |
-
-**Verdict: READY FOR REVIEW** (with 2 non-blocking warnings)
-```
-
-Verdicts: **READY FOR REVIEW** (all PASS, or only non-blocking WARNs) or
-**NEEDS FIXES** (any FAIL, with specific remediation steps). For pre-PR runs,
-include the verification report in the PR description.
-
-## Example
-
-```
-User: /verify
-
-Claude: Running 7-phase verification pipeline...
-
-Phase 1: Build ............ PASS (0 errors)
-Phase 2: Diagnostics ...... PASS (0 new warnings)
-Phase 3: Antipatterns ..... WARN
-  - src/Features/Orders/CreateOrder.cs:42 -- DateTime.Now usage, use TimeProvider
-Phase 4: Tests ............ PASS (23 passed, 0 failed, 0 skipped)
-Phase 5: Security ......... PASS
-Phase 6: Format ........... PASS
-Phase 7: Diff Review ...... PASS
-
-Verdict: READY FOR REVIEW (1 non-blocking warning)
-
-Recommendation: Replace DateTime.Now with TimeProvider on line 42 before
-merging. Not blocking, but it will fail the antipattern check in CI.
-```
-
-## Related
-
-- `/build-fix` -- Auto-fix build errors when Phase 1 fails
-- `/code-review` -- Multi-dimensional review once verification passes
-- `/health-check` -- Whole-project graded assessment (beyond this change set)
+Use `NOT RUN` or `NOT APPLICABLE` rather than pretending an unchecked area passed.

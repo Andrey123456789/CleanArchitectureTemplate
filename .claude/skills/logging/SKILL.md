@@ -1,145 +1,201 @@
 ---
 name: logging
 description: >
-  Observability overview and glue for .NET 10: how the pieces fit together,
-  plus the cross-cutting parts owned here — ASP.NET health check endpoints
-  (/health), correlation IDs, and log-level strategy. For deep Serilog setup
-  load `serilog`; for traces and metrics load `opentelemetry`. Load this
-  skill when setting up observability from scratch, wiring health check
-  endpoints or correlation IDs, or when the user says "logging",
-  "observability", "monitoring setup", "liveness", "readiness", or "ILogger".
+  General application logging guidance for .NET using ILogger. Covers structured
+  message templates, log levels, scopes, correlation, exception logging,
+  sensitive data, and logging boundaries. Use when adding, reviewing, or
+  troubleshooting application logging. For Serilog-specific configuration,
+  sinks, enrichers, and bootstrap setup use the serilog skill.
 ---
 
-# Logging & Observability
+# Logging
 
 ## Core Principles
 
-1. **Structured logging with Serilog** — Every log entry is a structured event with named properties, not a formatted string. This enables searching, filtering, and alerting. All setup (two-stage bootstrap, `AddSerilog()`, sinks, enrichers) lives in the **serilog** skill — that skill's `AddSerilog()`-over-`UseSerilog()` guidance is canonical.
-2. **OpenTelemetry for distributed tracing** — Traces connect requests across services; metrics track system health over time. Full setup lives in the **opentelemetry** skill.
-3. **Health checks for operational readiness** — Every service exposes `/health` endpoints for load balancers and orchestrators. Liveness and readiness are separate questions and separate endpoints.
-4. **Correlation IDs for request tracing** — Every request gets a unique ID that flows through all log entries and downstream service calls, so one user complaint maps to one filtered log stream.
+1. Use `ILogger<T>` in application code.
+2. Prefer structured message templates over string interpolation.
+3. Log information that helps diagnose or operate the system.
+4. Avoid duplicate logging of the same failure across multiple layers.
+5. Never treat logs as a safe place for secrets or sensitive payloads.
+6. Choose log levels by operational meaning, not by how unusual an event feels.
 
-## Patterns
-
-### How the Pieces Fit Together
-
-| Concern | Owner | Skill |
-|---------|-------|-------|
-| Structured application logs | Serilog (`AddSerilog()`) | `serilog` |
-| Request summary logging | `UseSerilogRequestLogging()` | `serilog` |
-| Traces + metrics + OTLP export | OpenTelemetry SDK | `opentelemetry` |
-| Health endpoints, correlation IDs, log-level strategy | This skill | `logging` |
-
-Wire logging first (you need logs to debug the rest), then health checks, then tracing.
-
-### Correlation IDs
+## Structured Logging
 
 ```csharp
-// Middleware to set correlation ID
-public class CorrelationIdMiddleware(RequestDelegate next)
-{
-    private const string CorrelationIdHeader = "X-Correlation-Id";
+logger.LogInformation(
+    "Order {OrderId} created for customer {CustomerId}",
+    orderId,
+    customerId);
+```
 
-    public async Task InvokeAsync(HttpContext context)
+Avoid:
+
+```csharp
+logger.LogInformation(
+    $"Order {orderId} created for customer {customerId}");
+```
+
+Use stable property names so logs remain queryable.
+
+## Log Levels
+
+### Trace / Debug
+
+Detailed diagnostic information primarily useful during troubleshooting.
+
+Do not assume sensitive data is safe simply because the level is Debug or Trace.
+
+### Information
+
+Normal meaningful application events.
+
+Examples:
+
+- a background job completed;
+- an important business operation completed;
+- a deployment/runtime lifecycle event occurred.
+
+Avoid logging every internal method call.
+
+### Warning
+
+An unexpected or degraded condition from which the application recovered.
+
+Examples:
+
+- fallback used;
+- retry sequence exhausted but another path succeeded;
+- optional dependency unavailable;
+- unusual but handled state.
+
+### Error
+
+An operation failed and requires investigation or meaningful attention.
+
+Expected negative business outcomes such as `NotFound` or validation rejection
+are normally not application errors.
+
+### Critical
+
+The application or a major subsystem cannot continue safely.
+
+## Exception Logging
+
+Log an exception at the boundary that actually handles or terminates the failure.
+
+Do not log the same exception as Error in Repository, Application Service,
+Controller, and global exception handler.
+
+When rethrowing without meaningful handling, normally do not add duplicate logs.
+
+Follow the `error-handling` skill for exception-flow policy.
+
+## Scopes
+
+Use `ILogger.BeginScope` when several log entries need shared contextual data.
+
+```csharp
+using (logger.BeginScope(
+    new Dictionary<string, object?>
     {
-        var correlationId = context.Request.Headers[CorrelationIdHeader].FirstOrDefault()
-            ?? Guid.NewGuid().ToString();
-
-        context.Items["CorrelationId"] = correlationId;
-        context.Response.Headers[CorrelationIdHeader] = correlationId;
-
-        using (LogContext.PushProperty("CorrelationId", correlationId))
-        {
-            await next(context);
-        }
-    }
+        ["OrderId"] = orderId
+    }))
+{
+    await ProcessOrderAsync(orderId, cancellationToken);
 }
-
-// Program.cs — register early so every downstream log carries the ID
-app.UseMiddleware<CorrelationIdMiddleware>();
 ```
 
-Why middleware: pushing the property once at the pipeline edge attaches it to every log event in the request scope — no per-call-site plumbing. Propagate the same header on outgoing `HttpClient` calls via a `DelegatingHandler` (see the **httpclient-factory** skill).
+Logging providers may enrich these scopes differently.
 
-### Health Checks
+For provider-specific mechanisms such as Serilog `LogContext`, use the provider's
+dedicated skill.
 
-```csharp
-// Program.cs
-builder.Services.AddHealthChecks()
-    .AddNpgSql(builder.Configuration.GetConnectionString("Default")!,
-        name: "database", tags: ["ready"])
-    .AddRedis(builder.Configuration.GetConnectionString("Redis")!,
-        name: "redis", tags: ["ready"])
-    .AddRabbitMQ(builder.Configuration.GetConnectionString("RabbitMq")!,
-        name: "rabbitmq", tags: ["ready"]);
+## Correlation
 
-// Map endpoints
-app.MapHealthChecks("/health/live", new HealthCheckOptions
-{
-    Predicate = _ => false // No dependency checks — just "am I running?"
-});
+Prefer platform/runtime trace identifiers when they already provide adequate
+request correlation.
 
-app.MapHealthChecks("/health/ready", new HealthCheckOptions
-{
-    Predicate = check => check.Tags.Contains("ready")
-});
-```
+Add an explicit correlation identifier only when an integration or operational
+requirement needs one.
 
-Why two endpoints: liveness failing means "restart me"; readiness failing means "stop sending traffic". Conflating them makes a slow database restart your app in a loop.
+When a correlation identifier is accepted from an external client, validate or
+normalize it before propagating it.
 
-### Log-Level Strategy
+Propagate correlation/tracing context across outbound calls using the project's
+chosen tracing or HTTP infrastructure.
 
-| Level | Use for | Environment default |
-|-------|---------|---------------------|
-| Debug | Diagnostic detail, payload dumps (never PII in prod) | Development only |
-| Information | Business events: order placed, job completed | Dev + staging |
-| Warning | Recoverable anomalies: retry fired, fallback used | Everywhere — production default |
-| Error | Failed operations that need attention | Everywhere |
-| Fatal/Critical | App cannot continue | Everywhere |
+## Sensitive Data
 
-Why Warning as the production default: Information-level request noise at scale costs real money in log storage and drowns the signals. Keep Information for genuine business events via namespace overrides (see the **serilog** skill's `MinimumLevel.Override` pattern).
+Never log credentials or authentication secrets.
 
-## Anti-patterns
+Avoid logging:
 
-### Don't Log Sensitive Data
+- access/refresh tokens;
+- passwords;
+- private keys;
+- authorization headers;
+- full request/response bodies containing sensitive data.
 
-```csharp
-// BAD — logging credentials
-logger.LogInformation("User logged in: {Email} with password {Password}", email, password);
+Prefer stable technical identifiers over personal information.
 
-// GOOD — log identifiers, never secrets or PII at Information level
-logger.LogInformation("User {UserId} logged in", userId);
-```
+Do not rely on log level as a privacy control.
 
-### Don't Skip Health Check Tags
+## Payload Logging
 
-```csharp
-// BAD — all checks run for liveness AND readiness
-app.MapHealthChecks("/health");
+Do not serialize arbitrary domain objects or request bodies into logs by default.
 
-// GOOD — separate liveness (am I running?) from readiness (can I serve traffic?)
-app.MapHealthChecks("/health/live", new() { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new() { Predicate = c => c.Tags.Contains("ready") });
-```
+Log the specific properties needed for operation and diagnosis.
 
-### Don't Re-Implement What the Owning Skill Provides
+This reduces:
 
-```csharp
-// BAD — hand-rolling Serilog bootstrap here from memory
-builder.Host.UseSerilog(...);  // legacy API — the serilog skill forbids this
+- accidental secret/PII exposure;
+- huge log events;
+- serialization cost;
+- fragile log schemas.
 
-// GOOD — load the serilog skill and use its two-stage AddSerilog() bootstrap
-builder.Services.AddSerilog((services, lc) => lc.ReadFrom.Configuration(builder.Configuration)...);
-```
+## Performance
+
+Normal `ILogger` structured logging is sufficient for most code.
+
+For measured high-volume logging hot paths, consider source-generated
+`LoggerMessage` APIs.
+
+Do not add source-generated logging everywhere merely to avoid theoretical
+allocations.
+
+## Provider-Specific Configuration
+
+Application code should normally depend on `ILogger<T>`, not directly on Serilog
+or another provider.
+
+When Serilog is chosen, use the `serilog` skill for:
+
+- bootstrap configuration;
+- sinks;
+- enrichers;
+- request logging;
+- provider-specific filtering;
+- `LogContext`.
+
+## Anti-Patterns
+
+Avoid:
+
+- string interpolation in structured logs;
+- duplicate exception logging;
+- logging expected business outcomes as errors;
+- logging credentials or secrets;
+- dumping full objects without review;
+- putting provider-specific APIs throughout Application code;
+- using logs as an audit database unless a dedicated audit design has been adopted.
 
 ## Decision Guide
 
-| Scenario | Recommendation |
-|----------|---------------|
-| Application logging setup | Load `serilog` — `AddSerilog()` two-stage bootstrap |
-| Distributed tracing / metrics | Load `opentelemetry` — OTLP exporter |
-| Custom business metrics | `IMeterFactory` + counters/histograms (`opentelemetry` skill) |
-| Request tracing | Correlation ID middleware (this skill) |
-| Container health | `/health/live` and `/health/ready` endpoints (this skill) |
-| Log storage | Seq (development), Elastic/Grafana/OTLP backend (production) |
-| Log levels | Debug in dev, Information in staging, Warning default in production |
+| Scenario | Default |
+|---|---|
+| Application logging API | `ILogger<T>` |
+| Context shared across logs | `BeginScope` |
+| Unexpected handled exception | Log once at handling boundary |
+| Expected business rejection | Usually no Error log |
+| Provider-specific Serilog setup | `serilog` skill |
+| High-volume measured hot path | Consider `LoggerMessage` |

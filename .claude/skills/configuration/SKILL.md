@@ -14,10 +14,26 @@ description: >
 
 ## Core Principles
 
-1. **Options pattern always** — Never read `IConfiguration` directly in services. Bind configuration sections to strongly-typed classes with validation.
-2. **Validate on startup** — Use `ValidateDataAnnotations()` and `ValidateOnStart()` to catch misconfiguration before the first request.
-3. **Secrets never in source** — Use user secrets in development, Azure Key Vault or environment variables in production. Never commit secrets to git.
-4. **Configuration layering** — `appsettings.json` → `appsettings.{Environment}.json` → environment variables → user secrets. Later sources override earlier ones.
+1. **Prefer strongly typed options for structured settings consumed by services** —
+   Avoid string-based `IConfiguration` lookups throughout application code.
+   Direct `IConfiguration` access is appropriate in the composition root,
+   configuration-provider setup, and infrastructure registration when needed.
+
+2. **Validate important configuration early** —
+   Use startup validation for settings whose absence or invalid value prevents
+   the application from operating correctly.
+
+3. **Secrets never in source** —
+   Use `dotnet user-secrets` or another local secret mechanism for development,
+   and environment-specific secret injection or a managed secret store in
+   deployed environments.
+
+4. **Understand provider precedence** —
+   With the normal ASP.NET Core host, configuration commonly layers
+   `appsettings.json`, `appsettings.{Environment}.json`, development user
+   secrets, environment variables, and command-line arguments, with later
+   providers overriding earlier ones. Custom providers follow their registration
+   order.
 
 ## Patterns
 
@@ -98,7 +114,11 @@ builder.Services.AddOptions<JwtOptions>()
     .ValidateOnStart();
 ```
 
-### Azure Key Vault (Production)
+### External Secret Provider Example: Azure Key Vault
+
+Azure Key Vault is one possible managed secret provider. Use the provider that
+matches the hosting environment; do not add Azure-specific dependencies unless
+the project actually uses Azure.
 
 ```csharp
 // Program.cs — add Key Vault as a configuration source
@@ -131,7 +151,11 @@ public class EmailService(IOptionsSnapshot<SmtpOptions> options)
 
 ## Anti-patterns
 
-### Don't Read IConfiguration Directly
+### Don't Spread String-Based IConfiguration Access Through Services
+
+Using `IConfiguration` in `Program.cs`, composition code, or infrastructure
+registration is normal. The problem is making ordinary application services
+depend on configuration keys and parsing.
 
 ```csharp
 // BAD — stringly-typed, no validation, hard to test
@@ -192,6 +216,6 @@ builder.Services.AddOptions<JwtOptions>()
 | Config that changes per request | `IOptionsSnapshot<T>` |
 | Background service watching config | `IOptionsMonitor<T>` |
 | Development secrets | `dotnet user-secrets` |
-| Production secrets | Azure Key Vault or environment variables |
+| Production secrets | Environment/platform secret injection or chosen managed secret store |
 | Validating config | `ValidateDataAnnotations()` + `ValidateOnStart()` |
 | Multiple configs of same type | Named options with `IOptionsSnapshot<T>.Get(name)` |

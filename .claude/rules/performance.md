@@ -1,65 +1,100 @@
 ---
-alwaysApply: true
-description: >
-  Enforces performance best practices for .NET applications including async
-  patterns, caching, resource management, and hot-path optimizations.
+paths:
+  - "src/**/*.cs"
+  - "tests/**/*.cs"
 ---
 
 # Performance Rules
 
-## Async Patterns
+## General Principle
 
-- **Always propagate `CancellationToken` through the call chain.** Dropped tokens mean cancelled requests continue burning server resources.
+Prefer clear, correct code first.
 
-```csharp
-// DO
-public Task<Order?> GetOrderAsync(Guid id, CancellationToken ct) =>
-    db.Orders.FirstOrDefaultAsync(o => o.Id == id, ct);
+Do not introduce specialized performance optimizations without a concrete reason.
+For non-trivial optimizations, prefer measurement or profiling evidence over assumptions.
 
-// DON'T — token silently ignored
-public Task<Order?> GetOrderAsync(Guid id, CancellationToken ct) =>
-    db.Orders.FirstOrDefaultAsync(o => o.Id == id);
-```
+## Async and Cancellation
 
-- **Async all the way — no `.Result` or `.Wait()`.** Synchronously blocking on async code causes thread pool starvation and deadlocks. The only acceptable sync-over-async location is `Program.cs` top-level statements.
+- Use async APIs for asynchronous I/O.
+- Do not block asynchronous code with `.Result`, `.Wait()`, or similar sync-over-async patterns.
+- Propagate `CancellationToken` through asynchronous operations when cancellation is meaningful.
+- Do not add cancellation parameters to purely synchronous code without a use case.
 
-## Time and Clock
+## Time
 
-- **`TimeProvider` over `DateTime.Now` / `DateTime.UtcNow`.** `TimeProvider` is injectable and testable. `DateTime.Now` is a static dependency that makes time-sensitive logic untestable.
+Use `TimeProvider` for application logic whose behavior depends on the current time
+and needs to be testable.
 
-```csharp
-// DO
-public sealed class AuditService(TimeProvider clock)
-{
-    public DateTimeOffset Now => clock.GetUtcNow();
-}
-```
+Do not mechanically replace every use of `DateTime` or `DateTimeOffset`.
+Values representing stored timestamps or explicit dates are not clock dependencies.
 
-## Resource Management
+## HTTP
 
-- **`IHttpClientFactory` over `new HttpClient()`.** Direct instantiation causes socket exhaustion under load. The factory manages connection pooling and DNS rotation.
-- **Use `ArrayPool<T>` / `MemoryPool<T>` for buffer-heavy operations.** Renting from a pool avoids GC pressure from frequent large allocations.
+Do not create and dispose a new `HttpClient` for every request.
+
+Use `IHttpClientFactory` or another appropriate long-lived client strategy for
+outbound HTTP communication.
+
+Detailed HTTP client and resilience guidance belongs in the relevant skills.
+
+## Database Access
+
+Keep database work efficient by default:
+
+- filter and project in the database when practical;
+- avoid unnecessary round trips;
+- avoid loading significantly more data than required;
+- watch for N+1 query patterns;
+- use pagination for potentially large result sets.
+
+Detailed EF Core guidance belongs in the `ef-core` skill.
 
 ## Caching
 
-- **`HybridCache` over `IMemoryCache` / `IDistributedCache`.** `HybridCache` provides stampede protection, L1+L2 caching, and tag-based invalidation out of the box.
+Caching is an optimization, not a default architectural requirement.
 
-```csharp
-// DO
-var order = await cache.GetOrCreateAsync(
-    $"order:{id}",
-    async ct => await db.Orders.FindAsync([id], ct),
-    cancellationToken: ct);
-```
+Introduce caching when there is a clear reason, such as:
 
-## EF Core and Hot Paths
+- measured expensive repeated work;
+- high read volume;
+- expensive remote calls;
+- acceptable staleness semantics.
 
-- **Use compiled queries for hot-path EF Core queries.** Compiled queries skip expression tree translation on every call.
+Choose the cache implementation according to the deployment and consistency
+requirements.
 
-```csharp
-private static readonly Func<AppDbContext, Guid, CancellationToken, Task<Order?>> GetById =
-    EF.CompileAsyncQuery((AppDbContext db, Guid id, CancellationToken ct) =>
-        db.Orders.FirstOrDefault(o => o.Id == id));
-```
+Do not introduce caching merely because a value is read frequently.
 
-- **Prefer `ValueTask<T>` over `Task<T>` for high-throughput paths that often complete synchronously.** Avoids `Task` allocation when the result is already available. Use `Task` for general-purpose code where simplicity matters more.
+## Measured Optimizations
+
+The following techniques are valid but should normally be introduced only when
+a measured or clearly demonstrated need exists:
+
+- `EF.CompileQuery` / `EF.CompileAsyncQuery`;
+- `ValueTask<T>`;
+- `ArrayPool<T>` / `MemoryPool<T>`;
+- manual object pooling;
+- custom serialization optimizations;
+- aggressive caching;
+- raw SQL for performance.
+
+Do not sacrifice maintainability for speculative micro-optimization.
+
+## Allocation-Sensitive Code
+
+Prefer ordinary clear .NET code by default.
+
+For demonstrated allocation-heavy hot paths, consider appropriate tools such as
+spans, pooling, source-generated serialization, or preallocated buffers.
+
+Verify that the optimization materially improves the relevant workload.
+
+## Performance Changes
+
+When making a performance-motivated change:
+
+1. Identify the actual bottleneck or cost.
+2. Preserve observable behavior.
+3. Prefer the simplest optimization that addresses the problem.
+4. Add or preserve tests for behavior affected by the optimization.
+5. Benchmark or profile when the optimization is non-obvious or complex.

@@ -1,75 +1,140 @@
 ---
-alwaysApply: true
-description: >
-  Enforces security best practices for .NET applications including secrets
-  management, input validation, auth patterns, and OWASP compliance.
+paths:
+  - "src/**/*"
+  - "tests/**/*"
+  - "*.json"
+  - "*.yml"
+  - "*.yaml"
+  - "*.csproj"
 ---
 
 # Security Rules
 
-## Secrets Management
+## Secrets
 
-- **Never hardcode secrets in source code.** Use `dotnet user-secrets` for local development, Azure Key Vault or environment variables for deployed environments. Hardcoded secrets end up in git history and are nearly impossible to fully remove.
+Never hardcode real secrets, credentials, private keys, access tokens, or
+production connection strings in source-controlled files.
 
-```csharp
-// DO
-builder.Configuration.AddAzureKeyVault(vaultUri, credential);
-var conn = builder.Configuration.GetConnectionString("Default");
+For local development, use an appropriate local secret mechanism such as
+`dotnet user-secrets`.
 
-// DON'T
-var conn = "Server=prod;Password=hunter2";
-```
+For deployed environments, use environment-specific secret injection or a
+managed secret store appropriate to the hosting platform.
 
-- **Never commit `.env` files, `appsettings.Development.json` with real credentials, or `credentials.json`.** Add them to `.gitignore`.
+Do not assume a specific cloud provider unless the project has chosen one.
 
-## Input Validation
+Never commit real secrets to example configuration files.
 
-- **Validate all external input at system boundaries.** API endpoints, message handlers, and file uploads are trust boundaries. Use FluentValidation or the built-in validation attributes before data reaches domain logic.
-- **Use parameterized queries — never string concatenation for SQL.** EF Core parameterizes by default, but raw SQL, Dapper, and ADO.NET require explicit parameterization.
+## Input Boundaries
 
-```csharp
-// DO
-db.Database.SqlQuery<Order>($"SELECT * FROM Orders WHERE Id = {id}");
-// EF Core interpolation is parameterized — the above is safe
+Treat data from outside the trusted application boundary as untrusted.
 
-// DON'T
-db.Database.ExecuteSqlRaw("SELECT * FROM Orders WHERE Id = '" + id + "'");
-```
+Validate inputs where appropriate, including:
+
+- HTTP requests;
+- uploaded files;
+- external-service responses when assumptions matter;
+- message/event payloads;
+- user-provided identifiers and filters.
+
+Use the simplest validation mechanism appropriate to the project.
+Do not introduce FluentValidation solely because validation exists.
+
+## SQL and Persistence
+
+Use parameterized database access.
+
+EF Core LINQ normally parameterizes values automatically.
+
+For raw SQL, Dapper, or ADO.NET, use supported parameterization mechanisms.
+Never construct SQL by concatenating untrusted input.
 
 ## Authentication and Authorization
 
-- **Always add `[Authorize]` or `[AllowAnonymous]` explicitly on every controller or endpoint.** Ambiguous auth is a security hole. Never rely on a global default without also making intent explicit at the endpoint level.
+Default to explicit, reviewable authorization behavior.
 
-```csharp
-// DO
-[Authorize(Policy = "AdminOnly")]
-public sealed class AdminController : ControllerBase { }
+A project may secure endpoints using:
 
-[AllowAnonymous]
-app.MapGet("/health", () => Results.Ok());
+- global/fallback authorization policies;
+- controller/action authorization attributes;
+- endpoint authorization configuration.
 
-// DON'T — unmarked endpoint inherits whatever the global default is
-app.MapGet("/orders", GetOrders);
-```
+Do not require redundant `[Authorize]` attributes when a secure global policy
+already defines the intended behavior.
 
-## Transport and Data Protection
+Anonymous access should be deliberate and visible.
 
-- **Use HTTPS everywhere.** Enforce via HSTS in production (`app.UseHsts()` + `app.UseHttpsRedirection()`). Redirect HTTP to HTTPS. No exceptions.
+Authorization must be enforced on the server even if the client also hides or
+disables UI actions.
 
-- **Use Data Protection API for encrypting user data at rest.** Never roll your own encryption. The Data Protection API handles key rotation and algorithm selection correctly.
-- **CORS: explicit origins only, never wildcard in production.** `AllowAnyOrigin()` in production exposes your API to every domain on the internet.
+## HTTPS and Transport Security
 
-```csharp
-// DO
-builder.Services.AddCors(o => o.AddPolicy("Web", p =>
-    p.WithOrigins("https://app.example.com")
-     .AllowAnyMethod()
-     .AllowAnyHeader()));
+Production traffic carrying credentials or sensitive data must use TLS.
 
-// DON'T
-builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin()));
-```
+Respect the actual hosting topology. TLS may terminate in the application, a
+reverse proxy, ingress controller, gateway, or hosting platform.
 
-## Logging
+Do not disable certificate validation to make an integration work.
 
-- **Do not log PII at Information level or below.** Emails, names, IP addresses, and tokens must stay at `Debug` level at most, and only in development. Production log aggregators are often broadly accessible, making PII in logs a compliance liability.
+Do not require HTTP-to-HTTPS redirection when the deployment architecture
+already provides an appropriate secure transport boundary and redirection is not
+desired.
+
+## Data Protection and Encryption
+
+Do not implement custom cryptography when a well-reviewed platform mechanism is
+appropriate.
+
+ASP.NET Core Data Protection is suitable for application-generated protected
+payloads such as cookies or temporary protected values.
+
+Do not treat ASP.NET Core Data Protection as a universal database encryption
+solution.
+
+Use storage/database/platform encryption mechanisms according to the actual data
+protection requirement.
+
+## CORS
+
+Configure CORS according to the actual browser-client requirements.
+
+Prefer the narrowest policy that satisfies the application.
+
+Do not combine credentialed cross-origin requests with an unrestricted origin
+policy.
+
+A public unauthenticated API may legitimately have different CORS requirements
+from a private browser application.
+
+## Logging and Sensitive Data
+
+Never log:
+
+- passwords;
+- access or refresh tokens;
+- private keys;
+- authentication secrets;
+- full payment credentials.
+
+Avoid logging PII unless there is a concrete operational requirement and the
+project's privacy/security policy permits it.
+
+Changing the log level does not make sensitive data safe.
+
+Prefer stable technical identifiers over personal data in operational logs.
+
+## Error Responses
+
+Do not expose stack traces, SQL statements, connection strings, internal paths,
+secret values, or implementation details in public error responses.
+
+Use the project's centralized error-handling policy.
+
+## Dependencies
+
+When adding or updating dependencies:
+
+- prefer maintained packages;
+- avoid unnecessary dependencies;
+- review known vulnerabilities when practical;
+- do not ignore high-impact security advisories without an explicit reason.

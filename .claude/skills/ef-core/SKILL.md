@@ -242,7 +242,6 @@ Apply filtering, ordering, and pagination in the database.
 
 ```csharp
 var query = db.Orders
-    .AsNoTracking()
     .Where(x => x.CustomerId == customerId)
     .OrderByDescending(x => x.CreatedAt);
 
@@ -341,6 +340,188 @@ internal sealed class AuditInterceptor(TimeProvider clock)
 
 Do not hide business behavior in persistence interceptors.
 
+## Development Data Seeding
+
+Development databases should contain representative seed data by default when
+the database is empty.
+
+Development seeding is an Infrastructure/bootstrap concern and may use
+`AppDbContext` directly. It does not need to go through Application repositories
+or `IUnitOfWork`.
+
+Keep development seeding in a dedicated file, for example:
+
+```text
+Persistence/
+  Seeding/
+    DbSeeder.cs
+```
+
+Do not place substantial seed-data construction directly in `Program.cs`,
+`AppDbContext`, entity configurations, or migration files.
+
+### Environment
+
+Automatic development seeding must run only in the `Development` environment.
+
+Never automatically seed Production.
+
+Tests must use their own explicit test-data setup and must not depend on the
+development seeder.
+
+### Empty Database Behavior
+
+The development seeder initializes a new empty development database.
+
+Use one or more representative root/anchor entities to determine whether
+development data already exists.
+
+```csharp
+if (await db.Projects.AnyAsync(cancellationToken))
+{
+    return;
+}
+```
+
+If development data already exists, the seeder should normally leave it
+unchanged.
+
+Do not use the development seeder as an automatic synchronization, repair, or
+upgrade mechanism for an existing development database.
+
+Do not delete, overwrite, or recreate existing development data automatically.
+
+When a developer needs the latest seed dataset in an existing local database,
+the database may be dropped and recreated explicitly.
+
+### Seed Dataset
+
+Seed data should cover the main meaningful states and relationships needed to
+exercise the application during development.
+
+Include representative examples such as, where applicable:
+
+- newly created;
+- active or in progress;
+- completed;
+- inactive or archived;
+- entities with and without optional values;
+- entities with and without optional relationships;
+- representative status values;
+- meaningful boundary states.
+
+Do not attempt to generate every possible combination.
+
+Prefer a small, readable, representative dataset over large amounts of random
+data.
+
+Use deterministic data where practical so that development behavior remains
+predictable between database recreations.
+
+Preserve all Domain invariants and valid relationships when constructing seed
+entities.
+
+When the required entity graph or scenarios are complex, the task requirements
+should describe the desired dataset explicitly rather than having Claude invent
+a large generic object graph.
+
+### Seeder Example
+
+```csharp
+internal static class DbSeeder
+{
+    public static async Task SeedAsync(
+        AppDbContext db,
+        CancellationToken cancellationToken = default)
+    {
+        if (await db.Projects.AnyAsync(cancellationToken))
+        {
+            return;
+        }
+
+        var projects = CreateProjects();
+
+        await db.Projects.AddRangeAsync(
+            projects,
+            cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static IReadOnlyCollection<Project> CreateProjects()
+    {
+        // Create deterministic, representative development scenarios.
+        throw new NotImplementedException();
+    }
+}
+```
+
+The concrete seed entities and states must match the actual current Domain and
+persistence model.
+
+### Startup
+
+Invoke the seeder during application startup only when the host is running in
+the `Development` environment.
+
+```csharp
+if (app.Environment.IsDevelopment())
+{
+    await using var scope = app.Services.CreateAsyncScope();
+
+    var db = scope.ServiceProvider
+        .GetRequiredService<AppDbContext>();
+
+    await DbSeeder.SeedAsync(db);
+}
+```
+
+Do not automatically run migrations as part of this rule.
+
+Database migration strategy is separate from development data seeding.
+
+### Keeping Seed Data Current
+
+Seed data is part of the maintained application code.
+
+Whenever a Domain or persistence change affects seeded entities, update the
+development seeder in the same change.
+
+This includes changes such as:
+
+- new required properties;
+- removed or renamed properties;
+- changed relationships;
+- new required related entities;
+- changed enum/status values;
+- new meaningful entity states;
+- changed Domain invariants.
+
+If an EF Core migration reflects a model change that affects the seeded entity
+graph, review and update `DbSeeder` together with that migration.
+
+A migration of an existing development database does not require the seeder to
+patch already seeded rows automatically.
+
+The goal is that recreating the development database at any revision produces
+seed data that is valid and representative for that revision.
+
+### Seeding Rules
+
+- Seed development databases by default when they are empty.
+- Automatically seed only in `Development`.
+- Never automatically seed Production.
+- Do not use the development seeder as test setup.
+- Keep seed logic in a dedicated file.
+- Do not overwrite existing development data automatically.
+- Keep seed data synchronized with the current Domain and persistence model.
+- Review seed data whenever a related migration is introduced.
+- Prefer deterministic and readable data.
+- Cover the main meaningful states and relationships.
+- Preserve Domain invariants.
+- Use `AppDbContext` directly inside Infrastructure seeding code.
+- Let developers explicitly recreate local databases when a fresh dataset is needed.
+
 ## Migrations
 
 Treat migrations as source code.
@@ -353,6 +534,12 @@ dotnet ef migrations add AddOrderIndex --project src/MyApp.Infrastructure --star
 ```
 
 Review generated migrations before committing them.
+
+When a migration changes entities or relationships represented by development
+seed data, review and update `DbSeeder` in the same change.
+
+After the change, recreating an empty development database must produce seed data
+that is valid for the migrated schema and current Domain model.
 
 Pay particular attention to:
 
@@ -411,6 +598,9 @@ Do not:
 - fire-and-forget EF asynchronous operations;
 - introduce compiled queries without evidence;
 - introduce raw SQL merely to appear more performant.
+- automatically seed development data in Production;
+- use the development seeder to silently patch or overwrite an existing local database;
+- change the seeded entity model without updating the maintained seed dataset.
 
 ## Decision Guide
 
@@ -428,3 +618,9 @@ Do not:
 | Measured extremely hot query | Consider compiled query |
 | Multiple commits requiring atomicity | Explicit transaction |
 | Production schema change | Reviewed migration / controlled deployment |
+| Empty development database | Run maintained development seeder |
+| Existing development database | Leave seed data unchanged by default |
+| Model/migration affects seeded entities | Update `DbSeeder` in the same change |
+| Need fresh/current local seed dataset | Developer explicitly recreates the local database |
+| Test data | Use dedicated test setup, not development seeding |
+| Production | Never run development seeding automatically |

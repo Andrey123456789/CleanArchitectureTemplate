@@ -1,183 +1,212 @@
 ---
 name: caching
 description: >
-  Caching strategies for .NET 10 applications. Covers HybridCache (the default),
-  output caching, response caching, and distributed cache patterns.
-  Load this skill when implementing caching, optimizing read performance, reducing
-  database load, or when the user mentions "cache", "HybridCache", "Redis",
-  "output cache", "response cache", "distributed cache", "IMemoryCache",
-  "cache invalidation", "stampede protection", or "cache-aside".
+  Caching guidance for .NET applications. Covers when caching is appropriate,
+  HybridCache, in-memory and distributed caching, output caching, cache keys,
+  expiration, invalidation, consistency, and testing. Use when implementing,
+  reviewing, or troubleshooting application or HTTP caching.
 ---
 
 # Caching
 
 ## Core Principles
 
-1. **HybridCache is the default** — .NET 9+ introduced `HybridCache` as the unified caching abstraction. It combines in-memory (L1) and distributed (L2) caching with stampede protection. See ADR-004.
-2. **Cache reads, not writes** — Cache GET operations. Invalidate on mutations. Never cache POST/PUT/DELETE responses.
-3. **Output caching for entire responses** — When the full HTTP response can be cached (public APIs, static data), use output caching middleware.
-4. **Set explicit TTLs** — Every cached item needs an expiration. No unbounded caches.
+1. **Caching is optional** — Introduce it for a concrete performance or scalability need.
+2. **Define consistency semantics first** — Know how stale data may become and how it is invalidated.
+3. **Keep cache technology out of Domain**.
+4. **Do not leak infrastructure cache APIs into Application without a deliberate reason**.
+5. **Every cache entry needs a lifetime or another explicit invalidation strategy**.
+6. **Measure before adding caching solely for performance**.
 
-## Patterns
+## Choosing the Cache Layer
 
-### HybridCache (Recommended Default)
+### HTTP response caching
+
+Use ASP.NET Core output caching when the entire HTTP response can safely be reused.
+
+This belongs in the API layer.
+
+### Application/data caching
+
+When an Application use case genuinely needs cache-aware behavior, define an
+appropriate abstraction in Application and implement it in Infrastructure.
+
+Do not introduce an application-level cache abstraction if caching can remain an
+internal Infrastructure concern.
+
+### Infrastructure caching
+
+Infrastructure adapters may cache expensive remote or persistence operations
+when doing so preserves the contract exposed to Application.
+
+## HybridCache
+
+`HybridCache` is a strong option when the application benefits from:
+
+- local in-memory caching;
+- optional distributed L2 caching;
+- stampede protection;
+- common cache-aside behavior.
+
+It is not mandatory for every project.
 
 ```csharp
-// Program.cs
-builder.Services.AddHybridCache(options =>
+public static IServiceCollection AddInfrastructure(
+    this IServiceCollection services,
+    IConfiguration configuration)
 {
-    options.DefaultEntryOptions = new HybridCacheEntryOptions
-    {
-        Expiration = TimeSpan.FromMinutes(5),
-        LocalCacheExpiration = TimeSpan.FromMinutes(2)
-    };
-});
+    services.AddHybridCache();
 
-// Optional: Add Redis as the L2 distributed cache
-builder.Services.AddStackExchangeRedisCache(options =>
-{
-    options.Configuration = builder.Configuration.GetConnectionString("Redis");
-});
-```
-
-```csharp
-// Usage in a handler
-public class GetProduct
-{
-    public record Query(Guid Id);
-    public record Response(Guid Id, string Name, decimal Price);
-
-    internal class Handler(AppDbContext db, HybridCache cache)
-    {
-        public async Task<Response?> Handle(Query query, CancellationToken ct)
-        {
-            return await cache.GetOrCreateAsync(
-                $"products:{query.Id}",
-                async token => await db.Products
-                    .Where(p => p.Id == query.Id)
-                    .Select(p => new Response(p.Id, p.Name, p.Price))
-                    .FirstOrDefaultAsync(token),
-                new HybridCacheEntryOptions
-                {
-                    Expiration = TimeSpan.FromMinutes(10)
-                },
-                cancellationToken: ct);
-        }
-    }
+    return services;
 }
 ```
 
-### Cache Invalidation
+Add a distributed backend such as Redis only when deployment requirements justify it.
+
+## Cache Abstraction Example
+
+When Application must coordinate cache invalidation explicitly:
 
 ```csharp
-// Invalidate on mutation
-public class UpdateProduct
+public interface IProductCache
 {
-    internal class Handler(AppDbContext db, HybridCache cache)
-    {
-        public async Task<Result> Handle(Command command, CancellationToken ct)
-        {
-            var product = await db.Products.FindAsync([command.Id], ct);
-            if (product is null) return Result.Failure("Product not found");
+    Task<ProductSummary?> GetAsync(
+        Guid id,
+        CancellationToken cancellationToken);
 
-            product.Update(command.Name, command.Price);
-            await db.SaveChangesAsync(ct);
+    Task SetAsync(
+        ProductSummary product,
+        CancellationToken cancellationToken);
 
-            // Invalidate the cached entry
-            await cache.RemoveAsync($"products:{command.Id}", ct);
-
-            return Result.Success();
-        }
-    }
+    Task RemoveAsync(
+        Guid id,
+        CancellationToken cancellationToken);
 }
 ```
 
-### Output Caching (Full Response Caching)
+Infrastructure may implement this contract using `HybridCache`.
+
+Do not expose `HybridCache` itself from Application contracts.
+
+## Cache Keys
+
+Keys must uniquely represent the cached value.
+
+Include all dimensions that affect the result, such as:
+
+- entity identifier;
+- tenant;
+- user when genuinely user-specific;
+- locale;
+- relevant query/filter parameters.
+
+Avoid global keys for user-specific or tenant-specific data.
+
+Centralize key construction when duplicated key formats become difficult to maintain.
+
+## Expiration
+
+Choose expiration based on data semantics rather than arbitrary universal defaults.
+
+Consider:
+
+- how frequently the data changes;
+- cost of regeneration;
+- acceptable staleness;
+- memory footprint;
+- failure behavior when the source is unavailable.
+
+Avoid unbounded cache entries.
+
+## Invalidation
+
+Invalidation should follow the consistency requirements of the use case.
+
+Typical strategies include:
+
+- remove affected key after a successful mutation;
+- short TTL with tolerated staleness;
+- tag/group invalidation;
+- versioned keys.
+
+Do not invalidate a cache before the underlying mutation is known to have succeeded
+unless the workflow deliberately accepts that behavior.
+
+## Output Caching
+
+Use output caching for responses that are safe to reuse.
 
 ```csharp
-// Program.cs
 builder.Services.AddOutputCache(options =>
 {
-    options.AddBasePolicy(b => b.NoCache()); // Don't cache by default
-
-    options.AddPolicy("ProductList", b => b
-        .Expire(TimeSpan.FromMinutes(5))
-        .Tag("products"));
-
-    options.AddPolicy("ProductById", b => b
-        .Expire(TimeSpan.FromMinutes(10))
-        .SetVaryByRouteValue("id")
-        .Tag("products"));
+    options.AddPolicy(
+        "ProductById",
+        policy => policy
+            .Expire(TimeSpan.FromMinutes(5))
+            .SetVaryByRouteValue("id"));
 });
 
 app.UseOutputCache();
-
-// Apply to endpoints
-group.MapGet("/", ListProducts).CacheOutput("ProductList");
-group.MapGet("/{id:guid}", GetProduct).CacheOutput("ProductById");
-
-// Invalidate by tag on mutations
-group.MapPut("/{id:guid}", async (Guid id, UpdateProductRequest request,
-    IOutputCacheStore store, CancellationToken ct) =>
-{
-    // ... update logic ...
-    await store.EvictByTagAsync("products", ct);
-    return TypedResults.NoContent();
-});
 ```
 
-### Cache-Aside Pattern (Legacy)
+For Controllers, apply the project's selected output-cache policy through the
+appropriate controller/action metadata.
 
-> **Prefer HybridCache** for all new code. Manual `IDistributedCache` cache-aside lacks stampede
-> protection, requires manual serialization, and has no L1/L2 layering. Use only when
-> integrating with existing code that already uses `IDistributedCache` directly.
+Do not cache authenticated or user-specific HTTP responses unless the cache key
+and policy correctly isolate users and authorization context.
 
-## Anti-patterns
+## Mutations
 
-### Don't Cache Without Expiration
+Application Services should perform their normal repository/UoW workflow.
 
-```csharp
-// BAD — cache lives forever, stale data guaranteed
-await cache.SetStringAsync(key, value);
+If cache invalidation is part of the required use-case semantics, coordinate it
+through an appropriate abstraction.
 
-// GOOD — always set TTL
-await cache.SetStringAsync(key, value, new DistributedCacheEntryOptions
-{
-    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10)
-});
-```
+Do not bypass repositories or `IUnitOfWork` merely to make cache invalidation convenient.
 
-### Don't Cache Mutable User-Specific Data
+## Failure Behavior
 
-```csharp
-// BAD — caching user's cart with a global key
-await cache.GetOrCreateAsync("shopping-cart", ...);
+Decide whether cache failure should:
 
-// GOOD — include user ID in key
-await cache.GetOrCreateAsync($"shopping-cart:{userId}", ...);
-```
+- fall back to the source;
+- fail the request;
+- return stale data.
 
-### Don't Build Your Own Stampede Protection
+Do not silently turn a cache into a second source of truth.
 
-```csharp
-// BAD — manual lock to prevent cache stampede
-private static readonly SemaphoreSlim Lock = new(1, 1);
-await Lock.WaitAsync();
-try { /* check cache, populate if missing */ }
-finally { Lock.Release(); }
+## Testing
 
-// GOOD — HybridCache has built-in stampede protection
-await hybridCache.GetOrCreateAsync(key, factory);
-```
+Test cache behavior when it affects observable correctness.
+
+Examples:
+
+- stale entries are invalidated after successful mutation;
+- tenant/user keys are isolated;
+- a cache miss falls back correctly;
+- a cache outage follows the intended failure policy.
+
+Do not unit-test framework cache implementation details.
+
+## Anti-Patterns
+
+Avoid:
+
+- caching by default without a demonstrated reason;
+- global keys for tenant/user-specific data;
+- indefinitely cached mutable data without an invalidation strategy;
+- placing cache technology in Domain;
+- making Application depend directly on `HybridCache` without a deliberate architectural decision;
+- caching EF tracked entities across Unit of Work boundaries;
+- using cache as authoritative persistence;
+- adding Redis merely because the application has caching.
 
 ## Decision Guide
 
-| Scenario | Recommendation |
-|----------|---------------|
-| General data caching | HybridCache (`GetOrCreateAsync`) |
-| Full HTTP response | Output caching with `.CacheOutput()` |
-| Frequently read, rarely written | HybridCache with longer TTL |
-| User-specific data | HybridCache with user-scoped key |
-| Cache invalidation on write | `cache.RemoveAsync()` or output cache tags |
-| Distributed deployment | HybridCache + Redis L2 backend |
-| Single-server deployment | HybridCache with in-memory only |
+| Need | Default consideration |
+|---|---|
+| Entire reusable HTTP response | ASP.NET Core output caching |
+| Local application cache | In-memory or HybridCache |
+| Multi-instance shared cache | Distributed cache / HybridCache L2 |
+| Expensive repeated remote read | Cache in Infrastructure when contract permits |
+| Application-controlled invalidation | Application abstraction + Infrastructure implementation |
+| Unknown performance problem | Measure before adding caching |

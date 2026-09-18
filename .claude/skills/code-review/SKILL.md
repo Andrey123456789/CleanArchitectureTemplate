@@ -1,170 +1,195 @@
 ---
 name: code-review
 description: >
-  MCP-powered multi-dimensional code review for .NET projects. Uses Roslyn
-  analysis tools for antipatterns, diagnostics, references, and dependency
-  graphs combined with structured manual review. Prioritizes effort with
-  blast-radius scoring — data access, security, concurrency, and integration
-  boundaries before style — and produces severity-categorized findings with
-  actionable fixes. Use when: "review", "code review", "PR review", "review
-  this", "review my code", "check code quality", "review changes", "what
-  should I review", "review priorities", "blast radius", "critical path".
+  Review completed .NET changes for correctness, architecture boundaries,
+  security, persistence risks, tests, maintainability, and credible performance
+  issues. Use for code reviews, PR reviews, reviewing a diff, or checking
+  completed implementation before merge.
 ---
 
-# /code-review — MCP-Powered Code Review
+# Code Review
 
-## What
+## Goal
 
-Performs a multi-dimensional code review combining Roslyn MCP analysis with
-structured manual review. Effort follows the 80/20 rule: the 20% of code that
-causes 80% of incidents (data access, security, concurrency, integration
-boundaries) gets thorough review; style and formatting are left to tooling.
+Review the actual changed behavior and identify concrete defects or risks.
 
-Review dimensions: **Correctness** (logic, edge cases, null handling, async
-pitfalls), **Security** (auth gaps, injection, secrets, CORS), **Performance**
-(N+1, allocations, missing cancellation), **Architecture compliance** (layer
-violations, boundary breaches), **Test coverage** (behavior tests for changed
-types).
+Prioritize:
 
-## When
+1. correctness;
+2. architectural boundary violations;
+3. data integrity and security;
+4. concurrency and integration behavior;
+5. missing meaningful tests;
+6. maintainability;
+7. performance issues supported by evidence.
 
-- "Review this", "code review", "PR review", before merging a pull request
-- After a major refactor to verify no regressions or design drift
-- "What should I review?" — deciding where review effort goes on a large change
-- Onboarding to unfamiliar code and wanting a quality assessment
+Do not bury important findings under style preferences.
 
-## How
+## Step 1: Establish Scope
 
-### Step 1: Scope and Score Blast Radius
+Determine what is being reviewed:
 
-Identify changed files (`git diff main...HEAD`, specified files, or module).
-Score each change to set review depth — blast radius determines depth, not
-line count. A one-line middleware change outranks a 300-line rename.
+- explicit files supplied by the user;
+- current working-tree diff;
+- branch/PR diff;
+- a named feature or module.
 
-| Blast Radius | Examples | Depth |
-|---|---|---|
-| Critical | Middleware, auth, DB migrations, shared kernel, CI/CD | Thorough — every code path |
-| High | Public API changes, message consumers, EF configuration, new module | Focused — consumers + behavior |
-| Medium | New feature following existing patterns, bug fix, new endpoint | Standard — checklist pass |
-| Low | Docs, formatting, renames, logging statements | Glance — build + tests pass |
+Inspect the changed code and enough surrounding code to understand its behavior.
 
-### Step 2: MCP Analysis (before reading any file)
+Do not review isolated lines without understanding their callers and dependencies.
 
-```
-detect_antipatterns(projectFilter: "affected-project")   → async void, DateTime.Now, new HttpClient(), broad catch
-get_diagnostics(scope: "project", path: "affected-project") → new warnings, nullability issues
-```
+## Step 2: Understand Intent
 
-Distinguish newly introduced findings from pre-existing ones — focus on new.
+Identify:
 
-### Step 3: Blast Radius Verification
+- the behavior being added or changed;
+- relevant architecture rules;
+- expected error cases;
+- persistence or external-system effects;
+- tests intended to protect the behavior.
 
-For each modified public API:
+Read relevant project rules/skills when they govern the changed area.
 
-```
-find_references(symbolName: "ModifiedType")              → count consumers; high count = high risk
-get_dependency_graph(symbolName: "ModifiedMethod", depth: 2) → ripple effects
-```
+## Step 3: Review Correctness
 
-Check whether callers handle changed return types and new error cases.
+Look for concrete behavioral problems such as:
 
-### Step 4: Architecture Compliance
+- wrong conditions or state transitions;
+- null/empty edge cases;
+- incorrect async behavior;
+- incorrect cancellation handling;
+- incorrect error mapping;
+- resource lifetime problems;
+- unintended side effects;
+- race conditions where shared state exists.
 
-Verify dependency direction (Domain → nothing; Infrastructure → Application →
-Domain) via `get_project_graph` and `detect_circular_dependencies`. Per
-architecture: VSA features don't cross-reference; Clean Architecture domain has
-zero project references; Modular Monolith modules communicate only via
-integration events — `find_references` on a module's DbContext should resolve
-only inside that module.
+Do not invent hypothetical failures without a plausible execution path.
 
-### Step 5: Manual Review — Priority Order
+## Step 4: Architecture
 
-Review what tools can't catch, highest-risk areas first:
+For this template, verify relevant Clean Architecture boundaries:
 
-| Priority | Area | Check |
-|---|---|---|
-| 1 | Data access | N+1 (missing `Include`/projection), raw SQL with user input, missing `CancellationToken` |
-| 2 | Security | Every endpoint has explicit `[Authorize]`/`[AllowAnonymous]`, input validated, no secrets in code, no PII in logs |
-| 3 | Concurrency | Token propagated end-to-end, no `.Result`/`.Wait()`, thread-safe shared state |
-| 4 | Integration | Retry/timeout on external calls, consumer idempotency, no swallowed exceptions |
-| 5 | Correctness | Business logic, edge cases (empty/null/concurrent), entities mapped to DTOs at the boundary |
-| 6 | Tests | Behavior tested (not implementation); happy path + main error case covered |
-| — | Style/naming | Mention only after the above; formatters and analyzers own this |
+- Domain does not depend on Application, Infrastructure, or API.
+- Application does not depend on Infrastructure or EF Core.
+- Controllers remain thin.
+- Application Services orchestrate use cases.
+- persistence is accessed through specific repository abstractions.
+- `DbContext`, `DbSet`, `IQueryable`, and EF-specific APIs do not leak from Infrastructure.
+- repositories do not independently commit normal use-case changes.
+- `IUnitOfWork` remains the Application-facing commit boundary.
 
-### Step 6: Produce the Review
+Do not report a violation merely because the implementation differs from a
+pattern not adopted by this project.
 
-Every finding states what's wrong, why it matters, and how to fix it. Never
-bury a security bug under naming nits.
+## Step 5: Data and Security
 
-```markdown
-## Code Review: [Scope]
+Review changed data-access and security-sensitive code carefully.
 
-### Summary
-[1-3 sentences: scope, risk level, recommendation]
+Check, when relevant:
 
-### Critical (must fix before merge)
-- **[Title]** — [file:line] [What's wrong. Why it matters. How to fix.]
+- transaction/commit behavior;
+- destructive data changes;
+- raw SQL parameterization;
+- authorization;
+- input trust boundaries;
+- secrets;
+- sensitive logging;
+- concurrency;
+- migrations;
+- cache consistency.
 
-### Warnings (should fix, creates tech debt)
-- **[Title]** — [file:line] [...]
+## Step 6: Integrations
 
-### Suggestions (nice to have)
-- **[Title]** — [file:line] [...]
+For external calls, check:
 
-### Architecture Compliance
-[PASS/WARN with boundary-violation notes]
+- cancellation propagation;
+- timeout strategy;
+- idempotency where relevant;
+- retry safety;
+- failure translation;
+- disposal/lifetime behavior.
 
-### Test Coverage
-[Which changed types have tests; specific scenarios to add]
+Do not demand retries for operations that are not safe to retry.
 
-### What's Good
-- [Always include — reinforce good patterns]
-```
+## Step 7: Tests
 
-**Quick review** (1-2 files, low blast radius): run `detect_antipatterns` +
-`get_diagnostics`, read for correctness, output Summary + Issues + What's Good.
+Determine whether changed behavior has useful automated coverage.
 
-## Example
+Focus on behavior rather than line count.
 
-```
-User: /code-review the changes in this PR
+For bugs, look for a regression test when recurrence is plausible.
 
-Claude: 7 changed files across 3 projects. CreateOrder touches data access
-and a public endpoint — High blast radius. Running MCP analysis...
+For behavioral probes created during implementation, follow the `testing` skill:
+the verified behavior should remain represented in maintained automated tests.
 
-## Code Review: Order Processing Feature
+Do not request duplicate tests when equivalent coverage already exists.
 
-### Summary
-Adds CreateOrder/GetOrder endpoints with EF Core persistence. Well-structured
-VSA feature. Two issues need attention before merge.
+## Step 8: Performance
 
-### Critical (must fix before merge)
-- **Missing CancellationToken propagation** — CreateOrder.cs:38
-  SaveChangesAsync() called without the token. Client disconnects keep
-  burning server resources. Pass `ct` from the handler parameter.
+Report performance concerns when they are credible, for example:
 
-### Warnings (should fix, creates tech debt)
-- **N+1 query in GetOrder** — GetOrder.cs:25
-  Order loaded without `.Include(o => o.Items)`; one lazy load per item
-  during serialization. Eager-load or use a projection.
+- obvious N+1 database access;
+- unbounded materialization;
+- repeated expensive external calls;
+- blocking async I/O;
+- obvious high-volume allocation in a demonstrated hot path.
 
-### Suggestions (nice to have)
-- **Seal the handler** — CreateOrderHandler.cs:10
-  Not designed for inheritance; `sealed` enables devirtualization.
+Do not recommend compiled queries, pooling, caching, `ValueTask`, or similar
+micro-optimizations without a reason.
 
-### Architecture Compliance
-PASS — all changes within Features/Orders/, no layer violations.
+## Optional Tooling
 
-### Test Coverage
-Happy path covered. Add tests for validation failure and not-found.
+Use compiler diagnostics, analyzers, IDE/Roslyn tooling, or repository-specific
+analysis tools when available.
 
-### What's Good
-- Clean command/query separation; FluentValidation covers edge cases
-- Response DTOs are records, no entity leaks
-```
+Tool output is evidence, not authority.
 
-## Related
+Do not require an MCP server or a particular analyzer for the review to work.
 
-- `/de-sloppify` — Cleanup pass for the style/formatting issues review skips
-- `/verify` — Automated verification pipeline (complements manual review)
-- `/health-check` — Broader project health assessment beyond a single PR
+Read the code before turning a tool warning into a review finding.
+
+## Output
+
+For each finding provide:
+
+- severity;
+- file/location;
+- what is wrong;
+- why it matters;
+- the smallest reasonable fix.
+
+Suggested severity:
+
+### Critical
+
+Data loss, security vulnerability, reliably broken core behavior, or another
+issue that should block use/merge immediately.
+
+### High
+
+Likely defect or architectural/data-integrity issue that should normally be
+fixed before merge.
+
+### Medium
+
+Real maintainability, robustness, or test gap worth addressing, but not a likely
+immediate production failure.
+
+### Low
+
+Non-blocking improvement.
+
+Do not manufacture findings to populate every severity.
+
+If no meaningful problem is found, say so.
+
+## Review Discipline
+
+Do not:
+
+- rewrite working code during a review unless asked;
+- report formatting already owned by tooling as a defect;
+- demand personal style preferences;
+- assume every warning is a bug;
+- require patterns the project has intentionally not adopted;
+- praise filler solely to balance criticism.
