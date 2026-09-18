@@ -1,9 +1,11 @@
 ---
 name: resilience
 description: >
-  Resilience guidance for .NET external dependencies using Polly v8 and
-  Microsoft.Extensions.Http.Resilience where appropriate. Covers timeouts,
-  retries, circuit breakers, fallback, hedging, rate limiting, idempotency,
+  Resilience guidance for .NET external dependencies using
+  Microsoft.Extensions.Resilience and Microsoft.Extensions.Http.Resilience.
+  Covers timeouts, retries, circuit breakers, fallback, hedging, rate limiting,
+  idempotency, Retry-After, telemetry, and provider-specific retry behavior.
+  Covers timeouts, retries, circuit breakers, fallback, hedging, rate limiting, idempotency,
   Retry-After, telemetry, and provider-specific retry behavior.
   Use when designing or reviewing transient-failure handling.
 ---
@@ -20,6 +22,24 @@ description: >
 5. Fallback is valid only when the fallback result is semantically acceptable.
 6. Do not add resilience mechanisms merely because they are available.
 7. Observe retries/timeouts/circuit behavior when they materially affect operations.
+
+## Package Choice
+
+For new .NET applications, prefer the modern Microsoft resilience integration:
+
+- use `Microsoft.Extensions.Http.Resilience` for `HttpClient` resilience;
+- use `Microsoft.Extensions.Resilience` for general resilience pipelines when needed.
+
+Do not add `Microsoft.Extensions.Http.Polly` or `Polly.Extensions.Http`; these
+integration packages are deprecated.
+
+The modern Microsoft resilience packages are implemented on top of Polly v8,
+but application guidance should normally use the Microsoft.Extensions
+resilience APIs rather than introducing direct Polly configuration.
+
+Use direct Polly APIs only when a concrete requirement is not adequately covered
+by the Microsoft.Extensions resilience integration and the additional dependency
+and lower-level configuration are justified.
 
 ## HTTP Resilience
 
@@ -147,8 +167,8 @@ Do not hedge state-changing operations by default.
 
 ## Database Resilience
 
-Do not wrap normal EF Core operations in a generic Polly retry pipeline by
-default.
+Do not wrap normal EF Core operations in a generic application-level retry or
+resilience pipeline by default.
 
 When a database provider supports transient retry through EF Core execution
 strategies/provider configuration, prefer that mechanism.
@@ -208,7 +228,8 @@ Useful signals include:
 - rate-limit rejection;
 - dependency latency.
 
-Do not require OpenTelemetry solely because Polly is present.
+Do not require OpenTelemetry solely because resilience pipelines or handlers
+are present.
 
 Use the telemetry stack adopted by the project.
 
@@ -223,7 +244,8 @@ Avoid:
 - circuit breakers added without a failure scenario;
 - fallback values that conceal incorrect business results;
 - hedging writes;
-- generic Polly wrappers around EF Core without understanding provider behavior;
+- generic retry/resilience wrappers around EF Core without understanding
+  provider behavior;
 - stacked resilience handlers with overlapping strategies;
 - unbounded retry/timeout combinations.
 
