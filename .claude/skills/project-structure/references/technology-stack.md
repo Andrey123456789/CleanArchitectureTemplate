@@ -287,80 +287,28 @@ Use built-in Angular capabilities before adding overlapping dependencies.
 For end-to-end testing, Playwright is an approved option when E2E coverage is
 required, but it is not part of the minimal default scaffold.
 
-# Package Version Policy
+# Dependency Policy
 
-For every NuGet or npm package added to the project:
-
-1. Determine the latest stable version compatible with the project's target
-   framework/runtime and peer dependencies.
-2. Do not select preview, alpha, beta, RC, dev, or nightly versions unless
-   explicitly requested.
-3. Check whether the package is deprecated.
-4. Check known vulnerability information available from the package ecosystem.
-5. Verify the package license before installation.
-6. Record NuGet versions through Central Package Management when enabled.
-7. Preserve npm lockfiles for reproducible frontend installs.
-
-"Latest version" means:
+All NuGet and npm dependency additions or updates must follow:
 
 ```text
-latest stable compatible version
+.claude/rules/dependencies.md
 ```
 
-not:
+That rule owns:
 
-```text
-latest prerelease available in the registry
-```
+- version selection;
+- stable-versus-prerelease policy;
+- deprecation and vulnerability checks;
+- license verification;
+- paid/commercial package approval;
+- handling of copyleft/custom/unclear licenses;
+- NuGet Central Package Management;
+- npm lockfile and peer-dependency policy.
 
-# License Policy
+This document defines the project's approved technology stack.
 
-Before installing a third-party dependency, inspect the official package
-registry metadata and, when necessary, the upstream license.
-
-Permissive open-source licenses suitable for normal commercial use, such as:
-
-```text
-MIT
-Apache-2.0
-BSD-family licenses
-```
-
-may normally be accepted.
-
-Do not assume that "free to download" means "safe to adopt".
-
-If the dependency has:
-
-```text
-a paid/commercial license requirement
-dual licensing that may require payment
-unclear/custom licensing
-strong copyleft obligations that may affect the project
-```
-
-do not install it automatically.
-
-Present the user with explicit choices.
-
-For a commercial dependency, use a format such as:
-
-```text
-Package: Example.Package
-Version: latest compatible stable version
-License: Commercial
-Reason requested: <capability>
-
-Options:
-1. Install the commercial package.
-2. Use free alternative A — <license / trade-off>.
-3. Use free alternative B — <license / trade-off>.
-...
-```
-
-If no reasonable free alternative exists, state that explicitly.
-
-Do not silently replace the requested package with an alternative.
+It does not override the dependency-selection and license rules.
 
 # Dependency Minimalism
 

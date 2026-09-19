@@ -24,7 +24,7 @@ ProjectName/
 │
 ├── .claude/
 │
-├── ProjectName.sln
+├── ProjectName.slnx
 ├── Directory.Build.props
 ├── Directory.Packages.props
 ├── global.json
@@ -37,6 +37,11 @@ This is a target structure.
 
 Do not create optional directories or projects merely to make the repository
 match the diagram.
+
+For .NET 10 projects, use the current default `.slnx` solution format.
+
+Use the legacy `.sln` format only when an external tool or project requirement
+specifically requires it.
 
 # Source Projects
 
@@ -199,10 +204,16 @@ Use NuGet Central Package Management.
 Keep package versions in one place rather than repeating versions across
 individual project files.
 
-Package selection and version policy is defined in:
+Approved technology choices are defined in:
 
 ```text
 technology-stack.md
+```
+
+Dependency version, security, and license policy is defined in:
+
+```text
+.claude/rules/dependencies.md
 ```
 
 ## `global.json`

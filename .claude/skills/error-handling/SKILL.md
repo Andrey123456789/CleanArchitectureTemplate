@@ -184,23 +184,50 @@ contract.
 
 ## Request Validation
 
-With `[ApiController]`, ASP.NET Core already handles many model-binding and
-request-validation failures and can produce validation problem responses.
+With `[ApiController]`, ASP.NET Core handles transport-level concerns such as
+model-binding failures and can produce validation problem responses.
 
-Use the project's chosen validation mechanism for transport-level input
-constraints.
+FluentValidation is the project's standard validation library for explicit
+request and use-case validation.
 
-Examples include:
+Use FluentValidation when validation rules need to be expressed for inputs such
+as:
 
-- required fields;
-- string length;
-- request shape;
-- formatting constraints.
+- required business/application input;
+- string or collection constraints;
+- ranges;
+- cross-property validation;
+- conditional validation;
+- other request/use-case rules that are clearer as explicit validators.
 
-Do not add FluentValidation automatically.
+Keep validation at the layer that owns the rule.
 
-Use it when its rule model materially improves validation clarity or when the
-project has already adopted it.
+For example:
+
+```text
+API transport/request-contract concern
+    -> API boundary validation where appropriate
+
+Application use-case input rule
+    -> Application validator
+
+Domain invariant
+    -> Domain model
+```
+
+Do not move Domain invariants into FluentValidation merely because the library
+is available.
+
+Do not duplicate the same rule mechanically in API, Application, and Domain.
+
+Use FluentValidation.DependencyInjectionExtensions for validator registration
+where appropriate.
+
+Do not introduce deprecated or legacy ASP.NET automatic-validation integration
+packages merely to connect FluentValidation to the request pipeline.
+
+Follow the project's established validation invocation pattern rather than
+adding a second competing mechanism.	
 
 ## Application and Domain Validation
 

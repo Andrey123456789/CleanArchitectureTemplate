@@ -61,7 +61,8 @@ When scaffolding or reorganizing a solution:
 
 1. Keep project boundaries explicit.
 2. Enforce dependency direction through project references.
-3. Keep backend, frontend, tests, and documentation clearly separated.
+3. Keep production projects, test projects, frontend, and documentation clearly
+   organized according to the repository layout.
 4. Use the repository's approved technology stack.
 5. Avoid speculative projects, abstractions, and directories.
 6. Keep the generated solution immediately buildable.
@@ -180,8 +181,11 @@ Resolve package versions at implementation time.
 
 Do not copy stale versions from examples or historical template content.
 
-Before installing a third-party package, apply the package-selection and license
-policy defined in that reference.
+Before installing or updating a dependency, follow
+`.claude/rules/dependencies.md`.
+
+`technology-stack.md` defines the approved technologies; `dependencies.md`
+defines package version, security, and license policy.
 
 ### 7. Add Test Projects
 
