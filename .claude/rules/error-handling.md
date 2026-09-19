@@ -1,46 +1,91 @@
 ---
-alwaysApply: true
-description: >
-  Enforces Result pattern for expected failures, ProblemDetails for HTTP errors,
-  and boundary-only exception handling in .NET projects.
+paths:
+  - "src/**/*.cs"
 ---
 
 # Error Handling Rules
 
-## Result Pattern Over Exceptions
+## Expected Outcomes
 
-- **DO** use a Result/Result<T> pattern for expected failure paths (not found, validation, conflict).
-  Rationale: Exceptions are expensive and hide control flow. Results make failure explicit in the type system.
+Do not use exceptions casually for normal expected control flow.
 
-- **DON'T** use try-catch for flow control. If you can predict the failure, return a Result.
-  Rationale: try-catch obscures the happy path and makes code harder to reason about.
+Represent expected outcomes using the simplest contract that communicates the
+use case clearly.
 
-- **DO** define typed error codes in your Result type: `NotFound`, `Validation`, `Conflict`, `Unauthorized`.
-  Rationale: Typed errors enable consistent mapping to HTTP status codes and structured logging.
+Depending on the situation this may be:
 
-## ProblemDetails for HTTP Responses
+- `null`;
+- `bool`;
+- an explicit typed outcome;
+- a deliberately adopted `Result<T>` pattern.
 
-- **DO** return ProblemDetails (RFC 9457) for all HTTP error responses.
-  Rationale: Industry standard format that clients can parse consistently across endpoints.
+`Result<T>` is not mandatory.
 
-- **DON'T** return bare strings or ad-hoc JSON for errors.
-  Rationale: Inconsistent error shapes break client error handling and make debugging harder.
+Do not introduce a Result abstraction throughout the project solely because an
+operation can fail.
 
-## Exception Handling Boundaries
+## Unexpected Exceptions
 
-- **DO** verify `app.UseExceptionHandler()` + `IExceptionHandler` (or inline handler) exists in Program.cs for EVERY web project. If missing, scaffold it immediately.
-  Rationale: Without a global handler, unhandled exceptions leak stack traces in production.
+Unexpected failures should normally propagate to an appropriate outer boundary.
 
-- **DON'T** catch bare `Exception` unless at the application boundary (middleware/top-level handler).
-  Rationale: Broad catches swallow bugs silently. Only the outermost layer should catch everything.
+In ASP.NET Core APIs, use centralized exception handling such as
+`IExceptionHandler`.
 
-- **DON'T** catch and rethrow without adding context. Either handle it or let it propagate.
-  Rationale: Catch-and-rethrow without value destroys stack traces and adds noise.
+Do not add broad `try/catch` blocks throughout Controllers, Application Services,
+or repositories merely to log and rethrow the same failure.
 
-## Boundary Validation
+Catch an exception when the current layer can meaningfully:
 
-- **DO** validate at system boundaries: API input, external service responses, file/config data.
-  Rationale: Bad data should be rejected at the edge before it corrupts internal state.
+- recover;
+- translate it into its own abstraction-level outcome;
+- perform a defined fallback;
+- add useful context while preserving the original exception;
+- perform required cleanup.
 
-- **DON'T** defensively validate inside internal/private methods.
-  Rationale: Internal code should trust validated data. Double-validation adds noise without safety.
+## Logging
+
+Unexpected exceptions should normally be logged once by the boundary that
+handles them.
+
+Do not log the same exception repeatedly across Infrastructure, Application,
+Controller, and the global exception handler.
+
+Detailed logging policy belongs to the `logging` skill.
+
+## HTTP Errors
+
+HTTP error semantics belong to the API layer.
+
+Use `ProblemDetails` / `ValidationProblemDetails` as the normal structured HTTP
+error contracts.
+
+Do not expose raw exception messages, stack traces, SQL, internal paths, or
+other implementation details to clients.
+
+Use the `http-api` skill as the canonical source for HTTP status-code semantics.
+
+## Cancellation
+
+Propagate `CancellationToken` through asynchronous operations when cancellation
+is meaningful.
+
+Normal client-request cancellation is not an unexpected server failure.
+
+Do not deliberately:
+
+- turn client cancellation into a generic `500`;
+- log normal client cancellation as an unhandled application error;
+- retry an operation merely because its caller cancelled it.
+
+## Validation Boundaries
+
+Validate concerns at the layer that owns them.
+
+- API validates transport/request concerns.
+- Application enforces use-case rules.
+- Domain protects meaningful domain invariants.
+- Infrastructure validates assumptions made about external systems when needed.
+
+Do not duplicate the same validation mechanically at every layer.
+
+Detailed implementation guidance belongs to the `error-handling` skill.

@@ -1,67 +1,98 @@
 ---
-alwaysApply: true
-description: >
-  Enforces testing strategy, patterns, and naming conventions for .NET
-  projects using xUnit v3, WebApplicationFactory, and Testcontainers.
+paths:
+  - "tests/**/*.cs"
+  - "tests/**/*.csproj"
 ---
 
 # Testing Rules
 
-## Strategy
+## Framework
 
-- **Integration tests first.** Use `WebApplicationFactory` + Testcontainers to test real HTTP pipelines against real databases. Integration tests catch the bugs that unit tests miss — serialization, middleware, DI wiring, and query behavior.
-- **No in-memory database for testing.** `UseInMemoryDatabase` has different behavior from real providers (no constraints, no transactions, no SQL translation). Use Testcontainers to spin up the real database engine.
+Use NUnit as the default .NET test framework.
 
-```csharp
-// DO — real PostgreSQL via Testcontainers
-public sealed class DatabaseFixture : IAsyncLifetime
-{
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder().Build();
-    public string ConnectionString => _container.GetConnectionString();
-    public Task InitializeAsync() => _container.StartAsync();
-    public Task DisposeAsync() => _container.DisposeAsync().AsTask();
-}
+Follow existing repository conventions when working in an established project
+that deliberately uses another framework.
 
-// DON'T
-options.UseInMemoryDatabase("TestDb");
-```
+Do not introduce a second test framework without a concrete reason.
 
-## Test Structure
+## Test Level
 
-- **AAA pattern with clear separation.** Arrange, Act, Assert — separated by blank lines. Each section should be immediately identifiable.
+Choose the narrowest test level that meaningfully verifies the behavior.
 
-```csharp
-[Fact]
-public async Task CreateOrder_ValidRequest_ReturnsCreated()
-{
-    // Arrange
-    var client = _factory.CreateClient();
-    var request = new CreateOrderRequest("SKU-1", Quantity: 2);
+- Use unit tests for isolated business/domain/application logic.
+- Use integration tests when framework wiring, HTTP, EF Core, persistence,
+  serialization, authentication, or component interaction is what matters.
+- Do not require integration tests for every behavior.
+- Do not require unit tests for behavior that is naturally verified through an
+  integration boundary.
 
-    // Act
-    var response = await client.PostAsJsonAsync("/orders", request);
-
-    // Assert
-    Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-}
-```
-
-- **One assertion concept per test.** You may assert multiple properties of the same result, but do not test two separate behaviors in one test. Separate behaviors need separate tests so failures are specific.
-
-## Naming
-
-- **Test naming: `MethodName_Scenario_ExpectedResult`.** Clear, searchable, and self-documenting. The test name is the specification.
-
-```
-GetOrderAsync_OrderDoesNotExist_ReturnsNull
-CreateOrder_DuplicateSku_ThrowsConflictException
-```
-
-## Fixtures and Mocking
-
-- **Shared fixtures for expensive setup.** Database containers, HTTP servers, and message brokers should be shared across tests using `IClassFixture<T>` or `ICollectionFixture<T>`. Starting a container per test is wasteful.
-- **No mocking frameworks for things you own.** If you control the code, use a real or test implementation. Mocking your own interfaces couples tests to implementation details and makes refactoring painful. Reserve mocks for third-party boundaries you cannot control.
+There is no required unit/integration test ratio.
 
 ## Behavior Over Implementation
 
-- **Test behavior, not implementation details.** Assert on the observable outcome (HTTP response, database state, published event), not on which internal methods were called. Tests coupled to internals break on every refactor.
+Test observable behavior rather than private implementation details.
+
+Do not make tests depend unnecessarily on:
+
+- private methods;
+- exact internal call sequences;
+- specific implementation classes;
+- incidental refactoring details.
+
+Interaction verification is appropriate when the interaction itself is part of
+the behavior being specified.
+
+## Test Doubles
+
+Use fakes, stubs, or mocks when they make an isolated test clearer.
+
+Do not mock every dependency mechanically.
+
+Do not forbid mocking project-owned abstractions when isolation is useful.
+
+When important behavior depends on real EF Core/provider/HTTP semantics, prefer
+an integration test instead of reproducing that behavior through mocks.
+
+## Database Tests
+
+Do not use EF Core InMemory while claiming to verify relational database
+behavior.
+
+Use the actual provider when provider fidelity matters.
+
+Testcontainers is a valid option for isolated real-provider tests, but it is
+not mandatory for every project or integration test.
+
+Never connect automated tests to Production data.
+
+## Isolation
+
+Tests must be deterministic and independent of execution order.
+
+Do not rely on:
+
+- shared mutable state between unrelated tests;
+- wall-clock timing when `TimeProvider` can make time deterministic;
+- uncontrolled external services;
+- Development or Production seed data.
+
+Tests own their own setup.
+
+## Behavioral Verification
+
+If a temporary behavioral probe created during implementation establishes that
+a feature works, that behavior must remain represented by maintained automated
+test coverage unless equivalent coverage already exists.
+
+The temporary mechanism itself does not need to remain.
+
+Detailed guidance belongs to the `testing` skill.
+
+## Naming
+
+Use descriptive test names that communicate scenario and expected behavior.
+
+A useful default is:
+
+```text
+MethodOrScenario_Condition_ExpectedBehavior
