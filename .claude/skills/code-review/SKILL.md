@@ -1,10 +1,10 @@
 ---
 name: code-review
 description: >
-  Review completed .NET changes for correctness, architecture boundaries,
-  security, persistence risks, tests, maintainability, and credible performance
-  issues. Use for code reviews, PR reviews, reviewing a diff, or checking
-  completed implementation before merge.
+  Review completed .NET and Angular changes for correctness, architecture
+  boundaries, security, persistence/API risks, tests, maintainability, and
+  credible performance issues. Use for code reviews, PR reviews, reviewing a
+  diff, or an independent defect-focused review of completed implementation.
 ---
 
 # Code Review
@@ -24,6 +24,9 @@ Prioritize:
 7. performance issues supported by evidence.
 
 Do not bury important findings under style preferences.
+
+Code review is not the completion checklist. Use `verify` to run the final
+build/test/diff verification.
 
 ## Step 1: Establish Scope
 
@@ -80,6 +83,23 @@ For this template, verify relevant Clean Architecture boundaries:
 
 Do not report a violation merely because the implementation differs from a
 pattern not adopted by this project.
+
+## Frontend Changes
+
+When Angular code is in scope, apply the `angular` skill.
+
+Review relevant concerns such as:
+
+- feature boundaries and component responsibility;
+- HTTP calls being kept behind an appropriate data-access boundary;
+- subscription/reactive-state lifetime;
+- frontend error handling;
+- route guards not being treated as server-side authorization;
+- unnecessary global/shared state;
+- meaningful frontend test coverage.
+
+Do not apply backend Clean Architecture project-boundary rules mechanically to
+Angular source code.
 
 ## Step 5: Data and Security
 

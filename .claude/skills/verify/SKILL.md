@@ -1,10 +1,11 @@
 ---
 name: verify
 description: >
-  Verify completed .NET changes before declaring them finished. Covers build,
-  relevant tests, behavioral verification, formatting/analyzers when configured,
-  architecture checks, dependency/security checks when relevant, and final diff
-  review. Use when finishing a feature, bug fix, refactor, or preparing a PR.
+  Verify completed .NET and Angular changes before declaring them finished.
+  Covers affected builds, relevant tests, behavioral verification,
+  formatting/analyzers when configured, architecture checks,
+  dependency/security checks when relevant, and final diff review.
+  Use when finishing a feature, bug fix, refactor, or preparing a PR.
 ---
 
 # Verify Changes
@@ -17,6 +18,10 @@ obvious regressions.
 Verification should match the scope and risk of the change.
 
 Do not require optional tooling that the repository has not configured.
+
+Verification is not a substitute for code review: it proves that required checks
+pass; `code-review` independently looks for defects that automated verification
+may not detect.
 
 ## 1. Inspect the Change
 
@@ -31,6 +36,16 @@ Confirm:
 - no generated/build artifacts were accidentally added;
 - no secrets or environment-specific credentials were introduced.
 
+Determine which parts of the repository were affected before choosing
+verification commands.
+
+For example:
+
+- backend-only change → verify affected .NET projects;
+- frontend-only change → verify the Angular application;
+- contract/full-stack change → verify both sides;
+- documentation-only change → do not run unrelated builds without a reason.
+
 ## 2. Build
 
 Build the affected solution or projects.
@@ -39,6 +54,12 @@ Typical command:
 
 ```bash
 dotnet build
+```
+
+For Angular changes, run the frontend's configured build command, typically:
+
+```bash
+npm run build
 ```
 
 Use a more targeted project/solution command when appropriate.
@@ -56,6 +77,13 @@ Typical command:
 ```bash
 dotnet test --no-build
 ```
+
+For Angular changes, run the relevant frontend test command when the project
+has one configured.
+
+Inspect `package.json` rather than assuming a particular test runner or command.
+
+Frontend testing conventions belong to the `angular` skill
 
 For small solutions, running the complete suite is appropriate.
 
@@ -172,10 +200,11 @@ Report what was actually run.
 Example:
 
 ```text
-Build: PASS
-Tests: PASS — 42 tests
-Formatting: PASS
-Security/dependency scan: NOT RUN — no dependency/security change
+Backend build: PASS / NOT APPLICABLE
+Frontend build: PASS / NOT APPLICABLE
+Tests: PASS / NOT RUN / NOT APPLICABLE
+Formatting: PASS / NOT RUN
+Security/dependency scan: ...
 Diff review: PASS
 ```
 
