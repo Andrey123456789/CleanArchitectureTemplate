@@ -10,17 +10,15 @@ Use it together with `architecture.md`.
 ProjectName/
 ├── src/
 │   ├── ProjectName.Domain/
+│   ├── ProjectName.Domain.Tests/
 │   ├── ProjectName.Application/
+│   ├── ProjectName.Application.Tests/
 │   ├── ProjectName.Infrastructure/
-│   └── ProjectName.Api/
+│   ├── ProjectName.Api/
+│   └── ProjectName.IntegrationTests/
 │
 ├── frontend/
 │   └── ProjectName.Web/
-│
-├── tests/
-│   ├── ProjectName.Domain.Tests/
-│   ├── ProjectName.Application.Tests/
-│   └── ProjectName.IntegrationTests/
 │
 ├── docs/
 │
@@ -42,7 +40,7 @@ match the diagram.
 
 # Source Projects
 
-All backend production projects live under:
+All backend .NET projects, including backend test projects, live under:
 
 ```text
 src/
@@ -90,13 +88,15 @@ Detailed frontend architecture belongs to the `angular` skill.
 
 # Tests
 
-.NET test projects live under:
+## Backend Tests
+
+Backend .NET test projects live alongside production projects under:
 
 ```text
-tests/
+src/
 ```
 
-Possible projects include:
+Typical projects are:
 
 ```text
 ProjectName.Domain.Tests/
@@ -104,11 +104,16 @@ ProjectName.Application.Tests/
 ProjectName.IntegrationTests/
 ```
 
-Create only the projects currently justified by the application.
+Optional focused test projects such as:
+
+```text
+ProjectName.Infrastructure.Tests/
+```
+
+should be introduced only when they provide useful separation.
 
 Typical intent:
 
-```text
 Domain.Tests
     domain behavior and invariants
 
@@ -117,12 +122,35 @@ Application.Tests
 
 IntegrationTests
     API + Application + Infrastructure integration
-```
 
 Integration tests may reference the API project for
-`WebApplicationFactory<Program>`.
+WebApplicationFactory<Program>.
 
-Detailed test policy belongs to the `testing` rule and skill.
+Keeping tests under src/ is an intentional repository convention. Do not create
+a separate top-level tests/ directory.
+
+## Frontend Tests
+
+Angular tests remain inside the Angular workspace:
+
+```text
+frontend/
+└── ProjectName.Web/
+```
+
+Unit and component tests normally follow current Angular conventions and may be
+colocated with the frontend source they test.
+
+When frontend E2E testing is introduced, keep it inside the frontend workspace,
+for example:
+
+```text
+frontend/ProjectName.Web/e2e/
+```
+
+Do not place Angular tests under the backend src/ directory.
+
+Detailed test policy belongs to the testing and angular skills.
 
 # Documentation
 

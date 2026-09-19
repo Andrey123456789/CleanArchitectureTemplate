@@ -74,14 +74,15 @@ The normal solution contains:
 ```text
 src/
     ProjectName.Domain/
+    ProjectName.Domain.Tests/
     ProjectName.Application/
+    ProjectName.Application.Tests/
     ProjectName.Infrastructure/
     ProjectName.Api/
+    ProjectName.IntegrationTests/
 
 frontend/
     ProjectName.Web/
-
-tests/
 
 docs/
 ```
@@ -186,15 +187,34 @@ policy defined in that reference.
 
 Create only useful test projects.
 
-The normal locations are under:
+Backend .NET test projects live beside the production projects under `src/`.
+
+Typical locations are:
 
 ```text
-tests/
+src/
+    ProjectName.Domain.Tests/
+    ProjectName.Application.Tests/
+    ProjectName.IntegrationTests/
 ```
+
+Add ProjectName.Infrastructure.Tests or another focused backend test project
+only when a concrete testing need justifies it.
 
 Use NUnit for .NET tests according to the repository testing policy.
 
-Detailed testing strategy belongs to the `testing` skill.
+Angular unit/component tests remain inside the Angular workspace under
+frontend/ProjectName.Web/, normally colocated with the frontend code according
+to current Angular conventions.
+
+Frontend E2E tests, when used, also remain under the frontend workspace, for
+example:
+
+```text
+frontend/ProjectName.Web/e2e/
+```
+
+Detailed testing strategy belongs to the testing and angular skills.
 
 ### 8. Create Angular Application
 

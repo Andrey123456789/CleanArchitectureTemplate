@@ -196,6 +196,28 @@ Detailed API documentation guidance belongs to the `openapi` skill.
 
 Use NUnit for .NET automated tests.
 
+Backend .NET test projects live under `src/` alongside the backend production
+projects.
+
+Typical test projects are:
+
+```text
+ProjectName.Domain.Tests
+ProjectName.Application.Tests
+ProjectName.IntegrationTests
+```
+
+Do not create a separate top-level tests/ directory.
+
+Angular unit/component tests remain inside the Angular workspace under
+frontend/ProjectName.Web/.
+
+Use the Angular project's configured test runner; Vitest is the baseline for new
+projects.
+
+When frontend E2E coverage is required, Playwright is the approved default and
+its tests should remain inside the frontend workspace.
+
 For ASP.NET Core integration tests use:
 
 ```text

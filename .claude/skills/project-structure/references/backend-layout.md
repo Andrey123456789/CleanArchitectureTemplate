@@ -235,6 +235,29 @@ builder.Services.AddInfrastructure(builder.Configuration);
 The API may reference Infrastructure for composition, but Controllers must not
 consume Infrastructure implementation types directly.
 
+# Backend Test Projects
+
+Backend tests live under `src/` alongside production projects.
+
+Typical structure:
+
+```text
+src/
+├── ProjectName.Domain/
+├── ProjectName.Domain.Tests/
+├── ProjectName.Application/
+├── ProjectName.Application.Tests/
+├── ProjectName.Infrastructure/
+├── ProjectName.Api/
+└── ProjectName.IntegrationTests/
+```
+Create only useful test projects.
+
+ProjectName.Infrastructure.Tests may be added when Infrastructure contains
+non-trivial behavior that benefits from a dedicated test assembly.
+
+Do not create a separate top-level tests/ directory.
+
 # Project References
 
 Use this dependency graph:
@@ -271,15 +294,19 @@ boundary instead of adding the reference.
 Typical references are:
 
 ```text
-Domain.Tests
-    -> Domain
+ProjectName.Domain.Tests
+    -> ProjectName.Domain
 
-Application.Tests
-    -> Application
-    -> Domain as needed
+ProjectName.Application.Tests
+    -> ProjectName.Application
+    -> ProjectName.Domain as needed
 
-IntegrationTests
-    -> Api
+ProjectName.IntegrationTests
+    -> ProjectName.Api
+
+ProjectName.Infrastructure.Tests       # optional
+    -> ProjectName.Infrastructure
+    -> narrower references as required
 ```
 
 Integration tests may transitively exercise Application, Infrastructure, EF Core,
