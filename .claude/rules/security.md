@@ -6,6 +6,12 @@ paths:
   - "**/*.yml"
   - "**/*.yaml"
   - "**/*.csproj"
+  - "**/*.props"
+  - "**/*.targets"
+  - "**/*.config"
+  - "**/.env*"
+  - "Dockerfile*"
+  - "**/Dockerfile*"
 ---
 
 # Security Rules
