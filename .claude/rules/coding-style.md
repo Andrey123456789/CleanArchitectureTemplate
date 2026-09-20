@@ -1,7 +1,6 @@
 ---
 paths:
   - "src/**/*.cs"
-  - "tests/**/*.cs"
 ---
 
 # C# Coding Style

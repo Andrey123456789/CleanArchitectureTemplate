@@ -1,11 +1,11 @@
 ---
 paths:
   - "src/**/*"
-  - "tests/**/*"
-  - "*.json"
-  - "*.yml"
-  - "*.yaml"
-  - "*.csproj"
+  - "frontend/**/*"
+  - "**/*.json"
+  - "**/*.yml"
+  - "**/*.yaml"
+  - "**/*.csproj"
 ---
 
 # Security Rules
@@ -37,8 +37,13 @@ Validate inputs where appropriate, including:
 - message/event payloads;
 - user-provided identifiers and filters.
 
-Use the simplest validation mechanism appropriate to the project.
-Do not introduce FluentValidation solely because validation exists.
+Use the validation mechanism appropriate to the owning layer.
+
+FluentValidation is the project's standard library for explicit request and
+Application use-case validation.
+
+Do not move Domain invariants into FluentValidation merely because the library
+is available.
 
 ## SQL and Persistence
 
@@ -132,9 +137,7 @@ Use the project's centralized error-handling policy.
 
 ## Dependencies
 
-When adding or updating dependencies:
+Dependency selection, versioning, licensing, and vulnerability checks are owned
+by `.claude/rules/dependencies.md`.
 
-- prefer maintained packages;
-- avoid unnecessary dependencies;
-- review known vulnerabilities when practical;
-- do not ignore high-impact security advisories without an explicit reason.
+Security-sensitive dependency changes must not bypass that policy.

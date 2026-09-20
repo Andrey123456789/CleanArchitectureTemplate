@@ -15,8 +15,8 @@ Add a dependency only when it solves a concrete current requirement.
 Do not install packages for hypothetical future use.
 
 When the repository defines an approved technology in
-`project-structure/references/technology-stack.md`, use that technology rather
-than silently selecting an alternative.
+`.claude/skills/project-structure/references/technology-stack.md`, use that
+technology rather than silently selecting an alternative.
 
 ## Version Selection
 

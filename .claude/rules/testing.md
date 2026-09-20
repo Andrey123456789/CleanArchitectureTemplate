@@ -1,7 +1,7 @@
 ---
 paths:
-  - "tests/**/*.cs"
-  - "tests/**/*.csproj"
+  - "src/**/*Tests/**/*.cs"
+  - "src/**/*Tests/*.csproj"
 ---
 
 # Testing Rules

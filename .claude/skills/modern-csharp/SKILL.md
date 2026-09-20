@@ -1,11 +1,11 @@
 ---
 name: modern-csharp
 description: >
-  Guidance for using modern C# features in .NET 10 / C# 14 when they improve
-  clarity or correctness. Covers primary constructors, collection expressions,
-  records, pattern matching, field-backed properties, extension members,
-  required members, raw strings, and performance-oriented features when
-  justified. Use when writing new C# or explicitly modernizing existing code.
+  Guidance for deliberately applying modern C# 14 features such as primary
+  constructors, collection expressions, records, pattern matching, field-backed
+  properties, extension members, required members, and raw strings.
+  Use when explicitly modernizing C# code or when a task specifically involves
+  recent C# language features.
 ---
 
 # Modern C#

@@ -25,3 +25,5 @@ based on Clean Architecture.
   or other repository-changing Git operations unless explicitly requested.
 - If a consequential requirement or architectural decision is genuinely
   ambiguous, ask before implementing.
+- Before adding or updating any NuGet or npm dependency, follow
+  `.claude/rules/dependencies.md`.

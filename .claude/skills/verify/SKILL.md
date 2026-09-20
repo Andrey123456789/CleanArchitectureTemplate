@@ -83,7 +83,7 @@ has one configured.
 
 Inspect `package.json` rather than assuming a particular test runner or command.
 
-Frontend testing conventions belong to the `angular` skill
+Frontend testing conventions belong to the `angular` skill.
 
 For small solutions, running the complete suite is appropriate.
 
@@ -120,7 +120,7 @@ Examples:
 - repository abstractions;
 - EF Core boundary;
 - Unit of Work behavior;
-- dependency direction.
+- dependency direction;
 - development seed-data consistency when model changes affect seeded entities.
 
 When a Domain or persistence change affects the development seed graph, verify
@@ -153,7 +153,7 @@ vulnerabilities and changed security behavior.
 For example, when supported by the installed SDK:
 
 ```bash
-dotnet list package --vulnerable --include-transitive
+dotnet package list --vulnerable --include-transitive
 ```
 
 Also inspect relevant changes for:

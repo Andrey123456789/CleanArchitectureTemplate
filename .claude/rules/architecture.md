@@ -2,8 +2,6 @@
 paths:
   - "src/**/*.cs"
   - "src/**/*.csproj"
-  - "tests/**/*.cs"
-  - "tests/**/*.csproj"
 ---
 
 # Architecture Rules

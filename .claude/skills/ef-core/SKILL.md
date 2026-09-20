@@ -371,7 +371,18 @@ development seeder.
 
 ### Empty Database Behavior
 
-The development seeder initializes a new empty development database.
+The development seeder assumes that the Development database schema has already
+been created and migrated to the current application revision.
+
+The seeder must not call `Database.Migrate()`, `EnsureCreated()`, or otherwise
+create or upgrade the database schema.
+
+For a new local database, the developer first applies the current migrations.
+Application startup may then populate the empty schema with Development seed
+data.
+
+The development seeder initializes an empty Development database after its
+schema has been brought to the current migration revision.
 
 Use one or more representative root/anchor entities to determine whether
 development data already exists.
