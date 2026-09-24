@@ -53,6 +53,36 @@ Identify:
 
 Read relevant project rules/skills when they govern the changed area.
 
+When `SPECIFICATION.md` is non-empty, treat it as the authoritative product
+contract.
+
+When `CUSTOM_SETTINGS.md` contains approved settings, treat those settings as
+part of the intended behavior.
+
+## Specification Conformance
+
+Review conformance in both directions:
+
+1. required behavior must not be missing or weakened;
+2. the implementation must not silently introduce unapproved product behavior,
+   restrictions, validation limits, workflow rules, or defaults.
+
+A reasonable detail absent from the original specification is not automatically
+a defect if the user explicitly approved it and the durable project sources were
+synchronized.
+
+Flag product drift when implementation invents behavior without approval, for
+example:
+
+- new maximum/minimum lengths or numeric limits;
+- reserved names or values;
+- changed case-sensitivity semantics;
+- newly required fields;
+- extra workflow restrictions;
+- additional user-visible validation rules.
+
+Do not confuse internal implementation details with product behavior.
+
 ## Step 3: Review Correctness
 
 Look for concrete behavioral problems such as:
@@ -80,6 +110,15 @@ For this template, verify relevant Clean Architecture boundaries:
 - `DbContext`, `DbSet`, `IQueryable`, and EF-specific APIs do not leak from Infrastructure.
 - repositories do not independently commit normal use-case changes.
 - `IUnitOfWork` remains the Application-facing commit boundary.
+
+Also check architectural proportionality:
+
+- simple CRUD/workflow applications should normally keep Domain entities simple;
+- abstraction count should be justified by actual complexity;
+- Rich Domain Models, DDD tactical patterns, CQRS/MediatR/VSA, extra layers,
+  project-wide Result models, or similar consequential patterns should not appear
+  without an approved need;
+- additional abstraction is not inherently better architecture.
 
 Do not report a violation merely because the implementation differs from a
 pattern not adopted by this project.

@@ -94,6 +94,28 @@ Any newly failing relevant test must be investigated.
 
 Do not ignore a failure merely because it appears unrelated without checking it.
 
+## Runtime Smoke Verification for New Applications
+
+When creating a new runnable application or making substantial composition,
+startup, configuration, persistence, or full-stack changes, verify that the
+application can actually start with its intended local Development configuration.
+
+As applicable, verify:
+
+- the API host starts successfully;
+- the configured Development endpoint is reachable;
+- Swagger UI is reachable when the API is expected to expose Swagger;
+- required configuration binds successfully;
+- database connectivity/initialization succeeds;
+- the frontend development application can start;
+- frontend API base URL and backend CORS configuration are compatible.
+
+A successful build alone does not prove runtime composition is valid.
+
+If this runtime check establishes behavior not already covered by maintained
+automated tests, follow the testing policy for preserving behavioral
+verification.
+
 ## 4. Preserve Behavioral Verification
 
 If a new behavioral probe was used to demonstrate that the implementation works,
@@ -179,6 +201,13 @@ Check for:
 - TODO/FIXME markers introduced unintentionally;
 - stale temporary tests or scripts;
 - architecture drift;
+- behavior that was verified manually but never preserved as a test.
+- stale temporary tests or scripts;
+- architecture drift;
+- unapproved drift from `SPECIFICATION.md` or `CUSTOM_SETTINGS.md`;
+- stale code/tests/docs/config after a `CUSTOM_SETTINGS.md` change;
+- unused or redundant `using` directives in C# files created or modified by the
+  current change;
 - behavior that was verified manually but never preserved as a test.
 
 ## Fix-and-Retry

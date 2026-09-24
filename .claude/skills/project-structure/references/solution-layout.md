@@ -8,9 +8,8 @@ Use it together with `architecture.md`.
 
 ```text
 ProjectName/
-├── src/
+├── backend/
 │   ├── ProjectName.Domain/
-│   ├── ProjectName.Domain.Tests/
 │   ├── ProjectName.Application/
 │   ├── ProjectName.Application.Tests/
 │   ├── ProjectName.Infrastructure/
@@ -24,6 +23,9 @@ ProjectName/
 │
 ├── .claude/
 │
+├── CLAUDE.md
+├── SPECIFICATION.md
+├── CUSTOM_SETTINGS.md
 ├── ProjectName.slnx
 ├── Directory.Build.props
 ├── Directory.Packages.props
@@ -48,7 +50,7 @@ specifically requires it.
 All backend .NET projects, including backend test projects, live under:
 
 ```text
-src/
+backend/
 ```
 
 The normal Clean Architecture projects are:
@@ -68,7 +70,7 @@ backend-layout.md
 
 # Frontend
 
-The Angular application lives outside the .NET `src` tree:
+The Angular application lives outside the .NET `backend` tree:
 
 ```text
 frontend/
@@ -98,16 +100,18 @@ Detailed frontend architecture belongs to the `angular` skill.
 Backend .NET test projects live alongside production projects under:
 
 ```text
-src/
+backend/
 ```
 
 Typical projects are:
 
 ```text
-ProjectName.Domain.Tests/
 ProjectName.Application.Tests/
 ProjectName.IntegrationTests/
 ```
+
+Create `ProjectName.Domain.Tests/` only when Domain contains non-trivial behavior
+that is useful to test independently.
 
 Optional focused test projects such as:
 
@@ -120,7 +124,8 @@ should be introduced only when they provide useful separation.
 Typical intent:
 
 Domain.Tests
-    domain behavior and invariants
+    optional; non-trivial domain behavior when such behavior genuinely belongs
+    to Domain
 
 Application.Tests
     application-service/use-case behavior
@@ -131,8 +136,8 @@ IntegrationTests
 Integration tests may reference the API project for
 WebApplicationFactory<Program>.
 
-Keeping tests under src/ is an intentional repository convention. Do not create
-a separate top-level tests/ directory.
+Keeping backend tests under `backend/` is an intentional repository convention.
+Do not create a separate top-level `tests/` directory.
 
 ## Frontend Tests
 
@@ -153,7 +158,7 @@ for example:
 frontend/ProjectName.Web/e2e/
 ```
 
-Do not place Angular tests under the backend src/ directory.
+Do not place Angular tests under the top-level `backend/` directory.
 
 Detailed test policy belongs to the testing and angular skills.
 

@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/**/*"
+  - "backend/**/*"
   - "frontend/**/*"
   - "**/*.json"
   - "**/*.yml"
@@ -12,6 +12,10 @@ paths:
   - "**/.env*"
   - "Dockerfile*"
   - "**/Dockerfile*"
+description: >
+  Enforces security practices for application code, configuration, dependency
+  configuration, secrets, authentication/authorization, data access, CORS, and
+  other security-sensitive project surfaces.
 ---
 
 # Security Rules

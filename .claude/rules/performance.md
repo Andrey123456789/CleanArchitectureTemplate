@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/**/*.cs"
+  - "backend/**/*.cs"
 ---
 
 # Performance Rules

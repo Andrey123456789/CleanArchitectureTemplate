@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/**/*.cs"
+  - "backend/**/*.cs"
 ---
 
 # C# Coding Style
@@ -99,6 +99,19 @@ Use standard .NET naming conventions:
 - meaningful names over abbreviations.
 
 Private-field naming should follow the repository's established convention.
+
+## Using Directives
+
+For every C# file created or modified by the current task:
+
+- remove unused or redundant `using` directives before completion;
+- do not keep imports already provided by implicit/global usings unless an
+  explicit import is required for clarity or disambiguation;
+- do not perform an unrelated repository-wide using cleanup when only a limited
+  set of files was changed.
+
+Use compiler, analyzer, IDE, or formatting support when available, but verify the
+changed files rather than assuming tooling removed every redundant import.
 
 ## Scope Discipline
 

@@ -60,9 +60,9 @@ infrastructure.
 
 Good candidates include:
 
-- domain invariants;
+- non-trivial domain behavior when such behavior genuinely belongs to Domain;
 - calculations;
-- state transitions;
+- workflow/state transitions at the layer that owns them;
 - validation logic;
 - application orchestration with simple fakes or mocks when isolation provides
   useful feedback.

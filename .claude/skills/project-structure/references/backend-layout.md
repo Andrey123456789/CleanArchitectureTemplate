@@ -8,7 +8,7 @@ Architectural behavior is governed by `.claude/rules/architecture.md`.
 # Domain
 
 ```text
-src/
+backend/
 └── ProjectName.Domain/
     ├── Entities/
     └── Enums/
@@ -32,7 +32,7 @@ Domain must not depend on Application, Infrastructure, or API.
 # Application
 
 ```text
-src/
+backend/
 └── ProjectName.Application/
     ├── Abstractions/
     │   ├── Persistence/
@@ -107,7 +107,7 @@ Do not register concrete Infrastructure implementations here.
 # Infrastructure
 
 ```text
-src/
+backend/
 └── ProjectName.Infrastructure/
     ├── Persistence/
     │   ├── Configurations/
@@ -180,7 +180,7 @@ resilience handlers when used
 # API
 
 ```text
-src/
+backend/
 └── ProjectName.Api/
     ├── Controllers/
     ├── Contracts/
@@ -237,14 +237,13 @@ consume Infrastructure implementation types directly.
 
 # Backend Test Projects
 
-Backend tests live under `src/` alongside production projects.
+Backend tests live under `backend/` alongside production projects.
 
 Typical structure:
 
 ```text
-src/
+backend/
 ├── ProjectName.Domain/
-├── ProjectName.Domain.Tests/
 ├── ProjectName.Application/
 ├── ProjectName.Application.Tests/
 ├── ProjectName.Infrastructure/
@@ -253,7 +252,10 @@ src/
 ```
 Create only useful test projects.
 
-ProjectName.Infrastructure.Tests may be added when Infrastructure contains
+`ProjectName.Domain.Tests` may be added when Domain contains non-trivial behavior
+worth testing independently.
+
+`ProjectName.Infrastructure.Tests` may be added when Infrastructure contains
 non-trivial behavior that benefits from a dedicated test assembly.
 
 Do not create a separate top-level tests/ directory.
@@ -294,7 +296,7 @@ boundary instead of adding the reference.
 Typical references are:
 
 ```text
-ProjectName.Domain.Tests
+ProjectName.Domain.Tests              # optional
     -> ProjectName.Domain
 
 ProjectName.Application.Tests

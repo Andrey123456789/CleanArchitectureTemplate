@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/**/*.cs"
+  - "backend/**/*.cs"
 ---
 
 # Error Handling Rules
@@ -82,8 +82,9 @@ Do not deliberately:
 Validate concerns at the layer that owns them.
 
 - API validates transport/request concerns.
-- Application enforces use-case rules.
-- Domain protects meaningful domain invariants.
+- Application enforces use-case rules and straightforward workflow rules.
+- Domain protects non-trivial domain invariants when the Domain genuinely owns
+  that behavior.
 - Infrastructure validates assumptions made about external systems when needed.
 
 Do not duplicate the same validation mechanically at every layer.

@@ -559,7 +559,7 @@ Create migrations from the Infrastructure project using the API project as the
 startup project when required.
 
 ```bash
-dotnet ef migrations add AddOrderIndex --project src/MyApp.Infrastructure --startup-project src/MyApp.Api
+dotnet ef migrations add AddOrderIndex --project backend/MyApp.Infrastructure --startup-project backend/MyApp.Api
 ```
 
 Review generated migrations before committing them.

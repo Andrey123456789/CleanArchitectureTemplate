@@ -98,8 +98,11 @@ FluentValidation.DependencyInjectionExtensions
 
 Use FluentValidation for request/use-case validation where validation is needed.
 
-Do not move meaningful Domain invariants out of Domain entities merely because
+Do not move genuinely non-trivial Domain behavior out of Domain merely because
 FluentValidation is available.
+
+Straightforward request, use-case, and workflow rules may remain in Application
+validation and Application Services.
 
 Do not use a deprecated or legacy ASP.NET validation integration package unless
 a concrete project requirement justifies it.
@@ -185,27 +188,43 @@ Direct Polly usage is an explicit exception governed by the `resilience` skill.
 
 # API Documentation
 
-Use built-in ASP.NET Core OpenAPI support.
+# API Documentation and Interactive Testing
 
-Do not add Swagger/OpenAPI packages merely out of habit when built-in framework
-support satisfies the requirement.
+Use Swagger UI as the default interactive API documentation and manual testing
+surface for ASP.NET Core Controller APIs.
 
-Detailed API documentation guidance belongs to the `openapi` skill.
+Baseline package:
+
+```text
+Swashbuckle.AspNetCore
+```
+
+Configure Swagger generation and Swagger UI so a Development run exposes:
+`/swagger`
+
+Do not use built-in `AddOpenApi()` / `MapOpenApi()` as the template default when
+the project requirement is interactive Swagger testing.
+Swagger tooling still uses the OpenAPI specification internally, but the
+developer-facing template requirement is Swagger UI rather than a standalone raw
+OpenAPI document endpoint.
+Expose Swagger UI outside Development only when deployment requirements
+explicitly justify it.
+Detailed guidance belongs to the `swagger` skill.
 
 # Testing
 
-Use NUnit for .NET automated tests.
-
-Backend .NET test projects live under `src/` alongside the backend production
+UBackend .NET test projects live under `backend/` alongside the backend production
 projects.
 
 Typical test projects are:
 
 ```text
-ProjectName.Domain.Tests
 ProjectName.Application.Tests
 ProjectName.IntegrationTests
 ```
+
+Add `ProjectName.Domain.Tests` only when Domain contains non-trivial behavior
+worth testing independently.
 
 Do not create a separate top-level tests/ directory.
 

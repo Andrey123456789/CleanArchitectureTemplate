@@ -128,6 +128,17 @@ Do not introduce a generic `Result<T>` library merely because a method can fail.
 If the project adopts a Result pattern, use it consistently and define typed
 errors rather than passing arbitrary strings through every layer.
 
+Application outcome/error categories should describe Application or business
+semantics rather than HTTP transport semantics.
+
+Avoid Application-level category names such as `BadRequest`, `Unprocessable`,
+`Unauthorized`, `Forbidden`, or `InternalServerError` solely because they map to
+HTTP response codes.
+
+Prefer names such as `Validation`, `NotFound`, `Conflict`, or
+`BusinessRuleViolation` when those accurately describe the Application outcome,
+then map them to HTTP semantics in the API layer.
+
 ## Controller Mapping
 
 Controllers translate Application outcomes into HTTP semantics.
@@ -208,10 +219,10 @@ For example:
 API transport/request-contract concern
     -> API boundary validation where appropriate
 
-Application use-case input rule
-    -> Application validator
+Application use-case input or straightforward workflow rule
+    -> Application validator / Application Service
 
-Domain invariant
+Non-trivial domain invariant that genuinely belongs to Domain
     -> Domain model
 ```
 
@@ -236,10 +247,12 @@ API validation does not replace business rules.
 A request can be syntactically valid but still violate an application or domain
 rule.
 
-Keep meaningful domain invariants in Domain when they naturally belong there.
+Keep genuinely non-trivial domain invariants in Domain when they naturally belong
+there.
 
-Keep orchestration/use-case rules in Application when they depend on the
-operation being performed.
+Keep ordinary CRUD rules, straightforward workflow/state rules, and
+orchestration/use-case rules in Application unless the approved design
+explicitly chooses a richer Domain model.
 
 Do not duplicate the same rule independently in several layers unless each layer
 has a distinct reason to enforce it.

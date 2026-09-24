@@ -73,9 +73,8 @@ When scaffolding or reorganizing a solution:
 The normal solution contains:
 
 ```text
-src/
+backend/
     ProjectName.Domain/
-    ProjectName.Domain.Tests/
     ProjectName.Application/
     ProjectName.Application.Tests/
     ProjectName.Infrastructure/
@@ -191,16 +190,19 @@ defines package version, security, and license policy.
 
 Create only useful test projects.
 
-Backend .NET test projects live beside the production projects under `src/`.
+Backend .NET test projects live beside the production projects under `backend/`.
 
 Typical locations are:
 
 ```text
-src/
-    ProjectName.Domain.Tests/
+backend/
     ProjectName.Application.Tests/
     ProjectName.IntegrationTests/
 ```
+
+Create ProjectName.Domain.Tests only when Domain contains non-trivial behavior
+worth testing independently. A simple Domain made primarily of entities and
+enums does not need a dedicated test project.
 
 Add ProjectName.Infrastructure.Tests or another focused backend test project
 only when a concrete testing need justifies it.
