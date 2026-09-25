@@ -16,7 +16,7 @@ backend/
 
 Create additional directories only when the Domain actually needs them.
 
-Possible later additions include:
+Possible later additions, when justified by the approved design, include:
 
 ```text
 ValueObjects/
@@ -25,9 +25,11 @@ Events/
 Exceptions/
 ```
 
-Do not create DDD-oriented directories by default.
+Do not create DDD-oriented directories merely because the Domain contains
+business rules or workflow behavior.
 
-Domain must not depend on Application, Infrastructure, or API.
+Introducing DDD tactical patterns must follow the consequential-decision policy
+from `.claude/rules/architecture.md.`.
 
 # Application
 
