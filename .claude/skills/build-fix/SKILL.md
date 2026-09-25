@@ -78,7 +78,7 @@ Start with the narrowest command that reliably reproduces the problem.
 
 Typical commands include:
 
-    dotnet build src/MyApp.Api/MyApp.Api.csproj
+    dotnet build backend/MyApp.Api/MyApp.Api.csproj
 
 or, when broader scope is required:
 
@@ -86,7 +86,7 @@ or, when broader scope is required:
 
 For a failing test project:
 
-    dotnet test src/MyApp.Application.Tests/MyApp.Application.Tests.csproj
+    dotnet test backend/MyApp.Application.Tests/MyApp.Application.Tests.csproj
 
 Use the repository's actual `.slnx`, project path, and configuration where
 appropriate.

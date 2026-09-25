@@ -176,7 +176,7 @@ When a deployment artifact is required, produce it deliberately:
 
 ```bash
 dotnet publish \
-  src/MyApp.Api/MyApp.Api.csproj \
+  backend/MyApp.Api/MyApp.Api.csproj \
   --configuration Release \
   --output ./artifacts/api \
   --no-build

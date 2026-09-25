@@ -31,16 +31,16 @@ WORKDIR /src
 COPY Directory.Build.props ./
 COPY Directory.Packages.props ./
 
-COPY src/MyApp.Domain/MyApp.Domain.csproj src/MyApp.Domain/
-COPY src/MyApp.Application/MyApp.Application.csproj src/MyApp.Application/
-COPY src/MyApp.Infrastructure/MyApp.Infrastructure.csproj src/MyApp.Infrastructure/
-COPY src/MyApp.Api/MyApp.Api.csproj src/MyApp.Api/
+COPY backend/MyApp.Domain/MyApp.Domain.csproj backend/MyApp.Domain/
+COPY backend/MyApp.Application/MyApp.Application.csproj backend/MyApp.Application/
+COPY backend/MyApp.Infrastructure/MyApp.Infrastructure.csproj backend/MyApp.Infrastructure/
+COPY backend/MyApp.Api/MyApp.Api.csproj backend/MyApp.Api/
 
-RUN dotnet restore src/MyApp.Api/MyApp.Api.csproj
+RUN dotnet restore backend/MyApp.Api/MyApp.Api.csproj
 
 COPY . .
 
-RUN dotnet publish src/MyApp.Api/MyApp.Api.csproj \
+RUN dotnet publish backend/MyApp.Api/MyApp.Api.csproj \
     --configuration Release \
     --output /app/publish \
     --no-restore
@@ -136,7 +136,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: src/MyApp.Api/Dockerfile
+      dockerfile: backend/MyApp.Api/Dockerfile
     ports:
       - "5000:8080"
     environment:
