@@ -97,13 +97,20 @@ public async Task<ActionResult<OrderResponse>> GetById(
     // ...
 }
 ```
-Do not document 201 when the action actually returns 200.
-Do not document 204 when the action returns a response body.
 
-All documented statuses must be real probable returned statuses. If there is no logic
-when status might be returned - it must be removed from attributes list from controller method. 
+Do not document `201` when the endpoint actually returns `200`.
 
-Only actual statuses must be present in controller method.
+Do not document `204` when the endpoint returns a response body.
+
+Document only status codes that are part of the endpoint's real runtime contract.
+
+When determining possible responses, consider the complete HTTP pipeline, not
+only explicit branches inside the Controller action. Relevant responses may also
+come from model binding, validation, authentication/authorization, rate limiting,
+centralized exception handling, or other configured middleware.
+
+Do not add speculative `ProducesResponseType` entries merely because a status
+code is theoretically possible.
 
 ## Creation Responses
 

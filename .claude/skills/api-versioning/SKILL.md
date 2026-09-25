@@ -171,7 +171,7 @@ support contract.
 Generate separate or clearly grouped OpenAPI descriptions for supported versions
 when clients need them.
 
-Follow the `openapi` skill for documentation details.
+Follow the `swagger` skill for Swagger/OpenAPI documentation details.
 
 The documented version must match runtime routing and Controller metadata.
 

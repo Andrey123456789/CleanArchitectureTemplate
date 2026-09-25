@@ -15,6 +15,14 @@ tunable product limits and defaults.
 
 It is not a runtime secret/configuration store.
 
+`SPECIFICATION.md` and `CUSTOM_SETTINGS.md` must remain consistent.
+
+`SPECIFICATION.md` owns behavioral intent. `CUSTOM_SETTINGS.md` owns approved
+concrete values for tunable settings.
+
+If they conflict, do not silently choose one source. Resolve the inconsistency
+before changing implementation.
+
 ## What Belongs Here
 
 Typical examples:
@@ -78,7 +86,9 @@ If a changed setting affects schema constraints, indexes, column lengths, or
 other persistence metadata:
 
 - update EF Core mapping;
-- create/update the appropriate migration when the project uses migrations;
+- create a new migration when the changed setting requires a schema change;
+- regenerate or edit an uncommitted migration only when that matches the
+  project's normal migration workflow;
 - verify Development seeding remains valid;
 - add or update persistence/integration tests when provider behavior matters.
 

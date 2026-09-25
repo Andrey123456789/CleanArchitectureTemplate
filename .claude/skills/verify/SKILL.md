@@ -201,9 +201,6 @@ Check for:
 - TODO/FIXME markers introduced unintentionally;
 - stale temporary tests or scripts;
 - architecture drift;
-- behavior that was verified manually but never preserved as a test.
-- stale temporary tests or scripts;
-- architecture drift;
 - unapproved drift from `SPECIFICATION.md` or `CUSTOM_SETTINGS.md`;
 - stale code/tests/docs/config after a `CUSTOM_SETTINGS.md` change;
 - unused or redundant `using` directives in C# files created or modified by the

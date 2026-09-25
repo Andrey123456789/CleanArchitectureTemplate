@@ -186,8 +186,6 @@ Polly.Extensions.Http
 
 Direct Polly usage is an explicit exception governed by the `resilience` skill.
 
-# API Documentation
-
 # API Documentation and Interactive Testing
 
 Use Swagger UI as the default interactive API documentation and manual testing
@@ -213,7 +211,7 @@ Detailed guidance belongs to the `swagger` skill.
 
 # Testing
 
-UBackend .NET test projects live under `backend/` alongside the backend production
+Backend .NET test projects live under `backend/` alongside the backend production
 projects.
 
 Typical test projects are:

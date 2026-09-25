@@ -304,7 +304,8 @@ When OpenAPI client generation is adopted:
 - regenerate it when the API contract changes;
 - do not manually patch generated files unless the generation workflow requires it.
 
-Follow the `openapi` skill.
+Follow the `swagger` skill for backend contract documentation and generated-client
+contract considerations.
 
 ## Testing
 

@@ -32,6 +32,14 @@ An empty `SPECIFICATION.md` in the reusable template is intentional.
 `CUSTOM_SETTINGS.md` contains approved project-level tunable product limits and
 defaults.
 
+`SPECIFICATION.md` defines behavioral intent, while `CUSTOM_SETTINGS.md` owns
+approved concrete values for tunable settings.
+
+The two files must not contradict each other.
+
+If they appear to conflict, stop and ask which source should be corrected rather
+than silently choosing one.
+
 Typical examples include:
 
 - maximum lengths;
