@@ -33,7 +33,11 @@ Common options include:
 - ASP.NET Core Identity when the application owns local users/passwords;
 - an external OpenID Connect/OAuth provider when identity is delegated.
 
-Do not add ASP.NET Core Identity if the application does not own user management.
+Do not add ASP.NET Core Identity merely because the application contains a
+business entity named `User` or supports user/profile management.
+
+Use ASP.NET Core Identity when the application owns local identity accounts,
+credentials/passwords, and needs Identity's account-management capabilities.
 
 Do not issue custom JWTs merely because the API needs authentication if an
 existing identity provider already owns token issuance.

@@ -73,6 +73,12 @@ builder.Services.AddOptions<DatabaseOptions>()
 }
 ```
 
+Numeric values in examples are illustrative, not template-approved defaults.
+
+Choose retry counts, timeouts, limits, and similar operational values from the
+actual integration and deployment requirements. Do not copy example values into
+a project merely because they appear in this skill.
+
 ### Injecting Options
 
 ```csharp

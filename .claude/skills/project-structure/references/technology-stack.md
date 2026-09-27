@@ -211,6 +211,11 @@ Detailed guidance belongs to the `swagger` skill.
 
 # Testing
 
+Use NUnit as the default .NET test framework.
+
+Resolve the current stable compatible NUnit/test-adapter package versions
+according to `.claude/rules/dependencies.md`.
+
 Backend .NET test projects live under `backend/` alongside the backend production
 projects.
 
