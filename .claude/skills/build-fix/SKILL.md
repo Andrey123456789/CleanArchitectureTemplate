@@ -220,7 +220,7 @@ When OpenAPI/client generation is used:
 Do not manually patch generated files unless the project's generation workflow
 explicitly requires that.
 
-Follow `openapi` and `http-api` where relevant.
+Follow the `swagger` and `http-api` skills where relevant.
 
 ## Test-Fix Flow
 

@@ -78,7 +78,8 @@ Controllers must not:
 
 Repository interfaces are inward-facing persistence contracts.
 
-- Prefer specific repository interfaces that represent actual Application or Domain persistence needs.
+- Prefer specific repository interfaces that represent actual Application
+  use-case persistence needs.
 - Repository interfaces should represent cohesive persistence boundaries rather
   than blindly mirror every database table.
 - When an explicitly approved DDD design contains Aggregate Roots, those

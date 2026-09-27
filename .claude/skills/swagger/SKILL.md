@@ -44,7 +44,6 @@ For a Controller API, a normal setup is:
 
 ```csharp
 builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();

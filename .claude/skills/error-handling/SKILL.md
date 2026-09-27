@@ -404,7 +404,8 @@ Avoid:
 | Multiple expected business outcomes | Consider typed outcome / Result |
 | Unexpected exception | Global `IExceptionHandler` |
 | API failure contract | `ProblemDetails` |
-| Domain invariant | Domain enforcement |
+| Straightforward use-case/workflow rule | Application validation / Application Service |
+| Non-trivial invariant genuinely owned by Domain | Domain enforcement |
 | Transport validation | API/request validation |
 | Recoverable external failure | Handle or translate at the appropriate boundary |
 | Unrecoverable external failure | Propagate to centralized handling |

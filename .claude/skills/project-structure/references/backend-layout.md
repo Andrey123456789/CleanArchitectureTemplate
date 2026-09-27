@@ -29,7 +29,7 @@ Do not create DDD-oriented directories merely because the Domain contains
 business rules or workflow behavior.
 
 Introducing DDD tactical patterns must follow the consequential-decision policy
-from `.claude/rules/architecture.md.`.
+from `.claude/rules/architecture.md`.
 
 # Application
 
