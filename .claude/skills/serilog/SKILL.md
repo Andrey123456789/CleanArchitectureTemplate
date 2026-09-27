@@ -79,6 +79,19 @@ finally
 }
 ```
 
+The following configuration intentionally demonstrates several optional sinks
+and enrichers in one example.
+
+Do not treat File, Seq, OpenTelemetry, Elasticsearch, or other sinks/enrichers
+shown in this skill as baseline dependencies.
+
+For a new application, configure only the sinks and enrichers required by the
+actual project. A Console sink is sufficient for a simple local Development
+baseline unless additional log storage or export is required.
+
+Numeric limits and retention values in examples are illustrative, not
+template-approved defaults.
+
 ### appsettings.json Configuration
 
 ```json

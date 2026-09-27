@@ -101,9 +101,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -119,14 +119,14 @@ jobs:
         working-directory: frontend/MyApp.Web
 
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+    
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/MyApp.Web/package-lock.json
-
+    
       - run: npm ci
       - run: npm run build
 ```
