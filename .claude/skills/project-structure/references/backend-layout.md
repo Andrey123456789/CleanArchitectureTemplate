@@ -94,7 +94,8 @@ Prefer established responsibility suffixes where applicable, for example:
 
 - `Service` for use-case orchestration services;
 - `Dto` for data-transfer models;
-- `Request` / `Response` for transport or operation contracts;
+- `Request` / `Response` for Application operation contracts; transport-specific
+  HTTP contracts belong to the API layer;
 - `Result` / `Outcome` for operation results;
 - `Validator` for validation;
 - `Rules` / `Policy` for decision or workflow rules;
