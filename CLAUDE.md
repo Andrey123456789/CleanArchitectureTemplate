@@ -22,6 +22,21 @@ reasonable option and ask for approval.
 Reasonable internal implementation details that do not change observable product
 behavior do not require approval.
 
+String comparison semantics that affect observable behavior are product
+behavior, not merely persistence implementation details.
+
+If the approved sources do not define the behavior and the choice materially
+affects equality, uniqueness, lookup, or accepted input, do not silently choose
+semantics such as:
+
+- case-sensitive vs. case-insensitive comparison;
+- database collation;
+- culture-sensitive vs. ordinal comparison;
+- normalization/canonicalization;
+- automatic trimming or equivalent input normalization.
+
+Ask for approval before choosing such behavior.
+
 When a new behavioral rule is approved, keep the durable source of truth
 synchronized by updating `SPECIFICATION.md` when appropriate.
 

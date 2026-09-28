@@ -42,6 +42,20 @@ Do not make tests depend unnecessarily on:
 Interaction verification is appropriate when the interaction itself is part of
 the behavior being specified.
 
+## Test Readability
+
+Test code should normally be simpler to reason about than the production
+behavior it verifies.
+
+Prefer explicit, declarative test cases over loops, branches, generated test
+matrices, or code that computes the expected result when the relevant cases
+can reasonably be listed directly.
+
+Prefer one observable scenario per test. A multi-step test is appropriate when
+the sequence itself is the behavior being verified.
+
+Detailed test-structure guidance belongs to the `testing` skill.
+
 ## Test Doubles
 
 Use fakes, stubs, or mocks when they make an isolated test clearer.

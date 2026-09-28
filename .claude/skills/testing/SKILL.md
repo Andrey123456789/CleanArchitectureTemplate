@@ -53,6 +53,43 @@ public sealed class PriceCalculatorTests
 Arrange / Act / Assert is a useful default structure, but comments are not
 mandatory when the phases are already obvious.
 
+## Test Readability
+
+Optimize tests for clarity rather than minimum line count.
+
+For small finite input/state spaces, enumerate cases explicitly with
+`[TestCase]` rather than generating them with loops, LINQ, `TestCaseSource`,
+or logic that derives the expected result.
+
+Avoid conditional branches and loops inside test bodies when explicit
+scenarios are practical.
+
+Expected results should normally be stated by the test, not calculated by
+logic that risks reproducing the implementation under test.
+
+Prefer:
+
+```csharp
+[TestCase(TaskStatus.Created, TaskStatus.InProgress, true)]
+[TestCase(TaskStatus.Created, TaskStatus.Completed, false)]
+[TestCase(TaskStatus.InProgress, TaskStatus.Completed, true)]
+public void IsTransitionAllowed_ReturnsExpected(
+    TaskStatus current,
+    TaskStatus target,
+    bool expected)
+{
+    var actual = TaskWorkflowRules.IsTransitionAllowed(current, target);
+
+    Assert.That(actual, Is.EqualTo(expected));
+}
+```
+
+A longer explicit case table is preferable to a shorter but algorithmic test
+when the explicit form makes the business rules immediately visible.
+
+Multi-step tests are appropriate when the sequence itself is the scenario,
+such as verifying an entire workflow or replace-set lifecycle.
+
 ## Unit Tests
 
 Use unit tests for behavior that can be meaningfully exercised without

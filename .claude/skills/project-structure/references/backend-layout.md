@@ -85,6 +85,38 @@ Application Services are the default use-case orchestration mechanism.
 
 Do not create handler/CQRS/MediatR structures by default.
 
+### Supporting Type Roles
+
+Within a feature/service area, the responsibility of each supporting type should
+be clear from its type name, its immediate directory, or both.
+
+Prefer established responsibility suffixes where applicable, for example:
+
+- `Service` for use-case orchestration services;
+- `Dto` for data-transfer models;
+- `Request` / `Response` for transport or operation contracts;
+- `Result` / `Outcome` for operation results;
+- `Validator` for validation;
+- `Rules` / `Policy` for decision or workflow rules;
+- `Factory` for object creation;
+- `Mapper` for mapping;
+- `Adapter` for boundary adaptation.
+
+Avoid ambiguous names such as `TaskWorkflow` when the type's architectural role
+cannot be inferred without opening the file. Prefer a more explicit name such as
+`TaskWorkflowRules`, `TaskWorkflowPolicy`, or `TaskWorkflowService` according to
+its actual responsibility.
+
+Use responsibility-specific subdirectories when a feature accumulates enough
+heterogeneous supporting types that a flat directory becomes difficult to
+navigate.
+
+Do not create subdirectories merely to classify one or two files when their
+roles are already obvious from their names.
+
+Avoid generic `Models`, `Helpers`, `Common`, or `Utils` buckets when a more
+specific responsibility can be named.
+
 ## `DTOs`
 
 Contains Application-level operation/data models when useful.

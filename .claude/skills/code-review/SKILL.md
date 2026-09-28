@@ -76,10 +76,16 @@ example:
 
 - new maximum/minimum lengths or numeric limits;
 - reserved names or values;
-- changed case-sensitivity semantics;
+- new or changed observable string-comparison semantics, including case
+  sensitivity, collation, culture/ordinal comparison, normalization, or
+  trimming behavior;
 - newly required fields;
 - extra workflow restrictions;
 - additional user-visible validation rules.
+
+When the specification is silent, do not treat a newly chosen observable
+string-comparison behavior as an internal implementation detail merely because
+it is expressed through database configuration or framework defaults.
 
 Do not confuse internal implementation details with product behavior.
 
